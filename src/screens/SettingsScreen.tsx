@@ -9,13 +9,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PaperSize } from '../types';
+import { RootStackParamList } from '../types/navigation';
 import { getSettings, saveSettings } from '../utils/storage';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function SettingsScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors, isDark, toggleTheme } = useTheme();
   const insets = useSafeAreaInsets();
   const [paperSize, setPaperSize] = useState<PaperSize>('58mm');
@@ -42,6 +44,8 @@ export default function SettingsScreen() {
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={[styles.backBtn, { backgroundColor: colors.surface }]}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
         >
           <Ionicons name="chevron-back" size={20} color={colors.text} />
         </TouchableOpacity>
@@ -67,6 +71,7 @@ export default function SettingsScreen() {
             onValueChange={toggleTheme}
             trackColor={{ false: colors.inputBorder, true: colors.accent }}
             thumbColor="#FFF"
+            accessibilityLabel="Toggle dark mode"
           />
         </View>
       </View>
@@ -80,6 +85,8 @@ export default function SettingsScreen() {
             paperSize === '58mm' && { backgroundColor: colors.accentMuted },
           ]}
           onPress={() => handleSizeChange('58mm')}
+          accessibilityLabel="58mm"
+          accessibilityRole="radio"
         >
           <View style={styles.sizeLeft}>
             <View style={[styles.radio, { borderColor: paperSize === '58mm' ? colors.accent : colors.textMuted }]}>
@@ -100,6 +107,8 @@ export default function SettingsScreen() {
             paperSize === '80mm' && { backgroundColor: colors.accentMuted },
           ]}
           onPress={() => handleSizeChange('80mm')}
+          accessibilityLabel="80mm"
+          accessibilityRole="radio"
         >
           <View style={styles.sizeLeft}>
             <View style={[styles.radio, { borderColor: paperSize === '80mm' ? colors.accent : colors.textMuted }]}>

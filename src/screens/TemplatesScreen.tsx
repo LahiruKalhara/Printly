@@ -10,13 +10,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Template } from '../types';
+import { RootStackParamList } from '../types/navigation';
 import { getTemplates, deleteTemplate } from '../utils/storage';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function TemplatesScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -102,6 +104,8 @@ export default function TemplatesScreen() {
             onPress={() => handleDelete(item.id, item.name)}
             style={[styles.deleteBtn, { backgroundColor: 'rgba(248, 113, 113, 0.1)' }]}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityLabel="Delete template"
+            accessibilityRole="button"
           >
             <Ionicons name="trash-outline" size={14} color={colors.error} />
           </TouchableOpacity>
@@ -117,6 +121,8 @@ export default function TemplatesScreen() {
         <TouchableOpacity
           style={[styles.newBtn, { backgroundColor: colors.accent }]}
           onPress={() => navigation.navigate('TemplateEditor', {})}
+          accessibilityLabel="Create new template"
+          accessibilityRole="button"
         >
           <Ionicons name="add" size={20} color="#FFF" />
         </TouchableOpacity>
@@ -132,6 +138,7 @@ export default function TemplatesScreen() {
           placeholderTextColor={colors.textMuted}
           value={search}
           onChangeText={setSearch}
+          accessibilityLabel="Search templates"
         />
         {search.length > 0 && (
           <TouchableOpacity onPress={() => setSearch('')}>

@@ -9,10 +9,12 @@ import {
   Alert,
   Modal,
   Image,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
+import { RootStackParamList } from '../types/navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import QRCodeView from '../components/QRCodeView';
@@ -23,8 +25,8 @@ import { addToHistory } from '../utils/storage';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function PrintBillScreen() {
-  const navigation = useNavigation<any>();
-  const route = useRoute<any>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'PrintBill'>>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -529,6 +531,8 @@ export default function PrintBillScreen() {
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={[styles.backBtn, { backgroundColor: colors.surface }]}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
         >
           <Ionicons name="chevron-back" size={20} color={colors.text} />
         </TouchableOpacity>
@@ -539,6 +543,8 @@ export default function PrintBillScreen() {
         <TouchableOpacity
           onPress={() => setShowPreview(true)}
           style={[styles.previewBtn, { backgroundColor: colors.accentMuted }]}
+          accessibilityLabel="Preview receipt"
+          accessibilityRole="button"
         >
           <Ionicons name="eye-outline" size={18} color={colors.accent} />
         </TouchableOpacity>
@@ -560,6 +566,8 @@ export default function PrintBillScreen() {
           style={[styles.printBtn, { backgroundColor: colors.accent }]}
           onPress={handlePrint}
           activeOpacity={0.85}
+          accessibilityLabel="Print bill"
+          accessibilityRole="button"
         >
           <Ionicons name="print" size={20} color="#FFF" />
           <Text style={styles.printBtnText}>Print Bill</Text>
@@ -575,6 +583,8 @@ export default function PrintBillScreen() {
               <TouchableOpacity
                 onPress={() => setShowSelectPicker(false)}
                 style={[styles.closeBtn, { backgroundColor: colors.surface }]}
+                accessibilityLabel="Close"
+                accessibilityRole="button"
               >
                 <Ionicons name="close" size={20} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -630,6 +640,8 @@ export default function PrintBillScreen() {
               <TouchableOpacity
                 onPress={() => setShowPreview(false)}
                 style={[styles.closeBtn, { backgroundColor: colors.surface }]}
+                accessibilityLabel="Close preview"
+                accessibilityRole="button"
               >
                 <Ionicons name="close" size={20} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -683,6 +695,8 @@ export default function PrintBillScreen() {
                 setShowDatePicker(false);
                 setActiveDateTimeRowId(null);
               }}
+              accessibilityLabel="Confirm date"
+              accessibilityRole="button"
             >
               <Text style={styles.pickerDoneText}>Done</Text>
             </TouchableOpacity>
@@ -731,6 +745,8 @@ export default function PrintBillScreen() {
                 setShowTimePicker(false);
                 setActiveDateTimeRowId(null);
               }}
+              accessibilityLabel="Confirm time"
+              accessibilityRole="button"
             >
               <Text style={styles.pickerDoneText}>Done</Text>
             </TouchableOpacity>

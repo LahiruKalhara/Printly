@@ -11,13 +11,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { Template } from '../types';
+import { RootStackParamList } from '../types/navigation';
 import { getTemplates } from '../utils/storage';
 
 export default function CategoriesScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [printerConnected, setPrinterConnected] = useState(false);
@@ -119,6 +121,8 @@ export default function CategoriesScreen() {
         <TouchableOpacity
           style={[styles.settingsBtn, { backgroundColor: colors.surface }]}
           onPress={() => navigation.navigate('Settings')}
+          accessibilityLabel="Settings"
+          accessibilityRole="button"
         >
           <Ionicons name="settings-outline" size={20} color={colors.textSecondary} />
         </TouchableOpacity>
@@ -147,6 +151,8 @@ export default function CategoriesScreen() {
               },
             ]}
             onPress={printerConnected ? handleDisconnect : handleConnectPrinter}
+            accessibilityLabel={printerConnected ? 'Disconnect printer' : 'Connect printer'}
+            accessibilityRole="button"
           >
             <Ionicons
               name={printerConnected ? 'close' : 'bluetooth'}
@@ -162,6 +168,8 @@ export default function CategoriesScreen() {
         style={[styles.printCard, { backgroundColor: colors.accent }]}
         onPress={handlePrintBill}
         activeOpacity={0.85}
+        accessibilityLabel="Print a bill"
+        accessibilityRole="button"
       >
         <View style={styles.printCardLeft}>
           <Text style={styles.printCardTitle}>Print a Bill</Text>
@@ -181,6 +189,8 @@ export default function CategoriesScreen() {
         style={[styles.createCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
         onPress={() => navigation.navigate('TemplateEditor', {})}
         activeOpacity={0.7}
+        accessibilityLabel="Create new template"
+        accessibilityRole="button"
       >
         <View style={[styles.createIconWrap, { backgroundColor: colors.accentMuted }]}>
           <Ionicons name="add" size={22} color={colors.accent} />
@@ -237,6 +247,8 @@ export default function CategoriesScreen() {
               <TouchableOpacity
                 onPress={() => setShowTemplatePicker(false)}
                 style={[styles.pickerClose, { backgroundColor: colors.surface }]}
+                accessibilityLabel="Close"
+                accessibilityRole="button"
               >
                 <Ionicons name="close" size={20} color={colors.textSecondary} />
               </TouchableOpacity>

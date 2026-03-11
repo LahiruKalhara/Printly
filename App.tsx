@@ -7,6 +7,7 @@ import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { RootStackParamList, TabParamList } from './src/types/navigation';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import CategoriesScreen from './src/screens/CategoriesScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
@@ -15,8 +16,8 @@ import TemplateEditorScreen from './src/screens/TemplateEditorScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import PrintBillScreen from './src/screens/PrintBillScreen';
 
-const Tab = createBottomTabNavigator();
-const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator<TabParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function TabNavigator() {
   const { colors, isDark } = useTheme();

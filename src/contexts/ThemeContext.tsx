@@ -24,17 +24,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<ThemeMode>('dark');
 
   useEffect(() => {
-    AsyncStorage.getItem(THEME_KEY).then((saved) => {
-      if (saved === 'light' || saved === 'dark') {
-        setMode(saved);
-      }
-    });
+    AsyncStorage.getItem(THEME_KEY)
+      .then((saved) => {
+        if (saved === 'light' || saved === 'dark') {
+          setMode(saved);
+        }
+      })
+      .catch(() => {
+        // Fall back to default dark theme
+      });
   }, []);
 
   const toggleTheme = () => {
     const next = mode === 'dark' ? 'light' : 'dark';
     setMode(next);
-    AsyncStorage.setItem(THEME_KEY, next);
+    AsyncStorage.setItem(THEME_KEY, next).catch(() => {
+      // Theme will still work in memory, just won't persist
+    });
   };
 
   const colors = mode === 'dark' ? darkTheme : lightTheme;

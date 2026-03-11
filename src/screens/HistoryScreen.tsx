@@ -13,8 +13,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PrintJob, TemplateRow } from '../types';
+import { RootStackParamList } from '../types/navigation';
 import { getHistory, clearHistory, addToHistory, deleteHistoryItem } from '../utils/storage';
 import { formatTimeAgo } from '../utils/helpers';
 import { useTheme } from '../contexts/ThemeContext';
@@ -22,7 +24,7 @@ import QRCodeView from '../components/QRCodeView';
 import BarcodeView from '../components/BarcodeView';
 
 export default function HistoryScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [history, setHistory] = useState<PrintJob[]>([]);
@@ -162,6 +164,8 @@ export default function HistoryScreen() {
       style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
       onPress={() => setPreviewJob(item)}
       activeOpacity={0.7}
+      accessibilityLabel={item.templateName + ', printed ' + formatTimeAgo(item.printedAt)}
+      accessibilityRole="button"
     >
       <View style={[styles.cardIndex, { backgroundColor: colors.accentMuted }]}>
         <Text style={[styles.cardIndexText, { color: colors.accent }]}>
@@ -187,12 +191,16 @@ export default function HistoryScreen() {
         <TouchableOpacity
           onPress={(e) => { e.stopPropagation(); handleDelete(item); }}
           style={[styles.actionBtn, { backgroundColor: 'rgba(248, 113, 113, 0.1)' }]}
+          accessibilityLabel="Delete from history"
+          accessibilityRole="button"
         >
           <Ionicons name="trash-outline" size={14} color={colors.error} />
         </TouchableOpacity>
         <TouchableOpacity
           onPress={(e) => { e.stopPropagation(); handleReprint(item); }}
           style={[styles.actionBtn, { backgroundColor: colors.accentMuted }]}
+          accessibilityLabel="Reprint bill"
+          accessibilityRole="button"
         >
           <Ionicons name="print-outline" size={16} color={colors.accent} />
         </TouchableOpacity>
@@ -220,6 +228,8 @@ export default function HistoryScreen() {
           <TouchableOpacity
             onPress={handleClearAll}
             style={[styles.clearBtn, { backgroundColor: 'rgba(248, 113, 113, 0.1)' }]}
+            accessibilityLabel={(search || timeFilter !== 'all') ? `Clear ${filtered.length} filtered items` : 'Clear all history'}
+            accessibilityRole="button"
           >
             <Ionicons name="trash-outline" size={16} color={colors.error} />
             <Text style={[styles.clearText, { color: colors.error }]}>
@@ -239,6 +249,7 @@ export default function HistoryScreen() {
             placeholderTextColor={colors.textMuted}
             value={search}
             onChangeText={setSearch}
+            accessibilityLabel="Search history"
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => setSearch('')}>
@@ -320,6 +331,8 @@ export default function HistoryScreen() {
               <TouchableOpacity
                 onPress={() => setPreviewJob(null)}
                 style={[styles.closeBtn, { backgroundColor: colors.surface }]}
+                accessibilityLabel="Close preview"
+                accessibilityRole="button"
               >
                 <Ionicons name="close" size={20} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -335,6 +348,8 @@ export default function HistoryScreen() {
               <TouchableOpacity
                 style={[styles.previewActionBtn, { backgroundColor: colors.accent }]}
                 onPress={() => { const job = previewJob; setPreviewJob(null); if (job) handleReprint(job); }}
+                accessibilityLabel="Reprint this bill"
+                accessibilityRole="button"
               >
                 <Ionicons name="print-outline" size={16} color="#FFF" />
                 <Text style={[styles.previewActionText, { color: '#FFF' }]}>Reprint</Text>

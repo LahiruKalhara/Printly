@@ -13,7 +13,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { RootStackParamList } from '../types/navigation';
 import QRCodeView from '../components/QRCodeView';
 import * as ImagePicker from 'expo-image-picker';
 import { TemplateRow, Template, SelectOption } from '../types';
@@ -23,8 +26,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import BarcodeView from '../components/BarcodeView';
 
 export default function TemplateEditorScreen() {
-  const navigation = useNavigation<any>();
-  const route = useRoute<any>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'TemplateEditor'>>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -669,6 +672,8 @@ export default function TemplateEditorScreen() {
             <TouchableOpacity
               onPress={() => setShowPreview(false)}
               style={[styles.closeBtn, { backgroundColor: colors.surface }]}
+              accessibilityLabel="Close preview"
+              accessibilityRole="button"
             >
               <Ionicons name="close" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
@@ -692,6 +697,8 @@ export default function TemplateEditorScreen() {
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={[styles.backBtn, { backgroundColor: colors.surface }]}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
         >
           <Ionicons name="chevron-back" size={20} color={colors.text} />
         </TouchableOpacity>
@@ -701,6 +708,8 @@ export default function TemplateEditorScreen() {
         <TouchableOpacity
           onPress={() => setShowPreview(true)}
           style={[styles.previewToggle, { backgroundColor: colors.accentMuted }]}
+          accessibilityLabel="Preview receipt"
+          accessibilityRole="button"
         >
           <Ionicons name="eye-outline" size={18} color={colors.accent} />
         </TouchableOpacity>
@@ -827,6 +836,8 @@ export default function TemplateEditorScreen() {
         <TouchableOpacity
           style={[styles.saveActionBtn, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}
           onPress={() => navigation.goBack()}
+          accessibilityLabel="Discard changes"
+          accessibilityRole="button"
         >
           <Ionicons name="close-outline" size={18} color={colors.text} />
           <Text style={[styles.saveActionText, { color: colors.text }]}>Discard</Text>
@@ -834,6 +845,8 @@ export default function TemplateEditorScreen() {
         <TouchableOpacity
           style={[styles.saveActionBtn, { backgroundColor: colors.accent, borderColor: colors.accent }]}
           onPress={handleSave}
+          accessibilityLabel="Save template"
+          accessibilityRole="button"
         >
           <Ionicons name="bookmark-outline" size={18} color="#FFF" />
           <Text style={[styles.saveActionText, { color: '#FFF' }]}>Save Template</Text>
