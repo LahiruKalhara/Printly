@@ -8,23 +8,28 @@ import {
   Image,
   Modal,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
-import { Template } from '../types';
+import { usePrinter, BluetoothDevice } from '../contexts/PrinterContext';
+import { Template, TemplateRow } from '../types';
 import { RootStackParamList } from '../types/navigation';
-import { getTemplates } from '../utils/storage';
+import { getTemplates, getSettings } from '../utils/storage';
 
 export default function CategoriesScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [printerConnected, setPrinterConnected] = useState(false);
+  const printer = usePrinter();
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showDevicePicker, setShowDevicePicker] = useState(false);
+  const [connectingAddress, setConnectingAddress] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [paperSize, setPaperSize] = useState('58mm');
 
   useFocusEffect(
     useCallback(() => {
@@ -35,14 +40,26 @@ export default function CategoriesScreen() {
   const loadTemplates = async () => {
     const data = await getTemplates();
     setTemplates(data);
+    const settings = await getSettings();
+    setPaperSize(settings.paperSize);
   };
 
-  const handleConnectPrinter = () => {
-    setPrinterConnected(true);
+  const handleConnectPrinter = async () => {
+    setShowDevicePicker(true);
+    await printer.scanDevices();
+  };
+
+  const handleSelectDevice = async (device: BluetoothDevice) => {
+    setConnectingAddress(device.address);
+    const success = await printer.connectDevice(device.address);
+    setConnectingAddress(null);
+    if (success) {
+      setShowDevicePicker(false);
+    }
   };
 
   const handleDisconnect = () => {
-    setPrinterConnected(false);
+    printer.disconnect();
   };
 
   const handlePrintBill = () => {
@@ -70,7 +87,7 @@ export default function CategoriesScreen() {
     { id: 'photos', label: 'Photos', icon: 'image-outline' as const },
   ];
 
-  const categoryRowType: Record<string, string> = {
+  const categoryRowType: Record<string, TemplateRow['type']> = {
     text: 'text',
     qr: 'qr-code',
     barcode: 'barcode',
@@ -133,31 +150,31 @@ export default function CategoriesScreen() {
         <View style={styles.printerRow}>
           <View style={[
             styles.statusDot,
-            { backgroundColor: printerConnected ? colors.success : colors.textMuted }
+            { backgroundColor: printer.isConnected ? colors.success : colors.textMuted }
           ]} />
           <View style={styles.printerInfo}>
             <Text style={[styles.printerLabel, { color: colors.text }]}>
-              {printerConnected ? 'Printer Connected' : 'No Printer'}
+              {printer.isConnected ? (printer.connectedDevice?.name || 'Printer Connected') : 'No Printer'}
             </Text>
             <Text style={[styles.printerSub, { color: colors.textMuted }]}>
-              {printerConnected ? 'Ready to print' : 'Tap to connect'}
+              {printer.isConnected ? 'Ready to print' : 'Tap to connect'}
             </Text>
           </View>
           <TouchableOpacity
             style={[
               styles.printerAction,
               {
-                backgroundColor: printerConnected ? 'rgba(248, 113, 113, 0.12)' : colors.accentMuted,
+                backgroundColor: printer.isConnected ? 'rgba(248, 113, 113, 0.12)' : colors.accentMuted,
               },
             ]}
-            onPress={printerConnected ? handleDisconnect : handleConnectPrinter}
-            accessibilityLabel={printerConnected ? 'Disconnect printer' : 'Connect printer'}
+            onPress={printer.isConnected ? handleDisconnect : handleConnectPrinter}
+            accessibilityLabel={printer.isConnected ? 'Disconnect printer' : 'Connect printer'}
             accessibilityRole="button"
           >
             <Ionicons
-              name={printerConnected ? 'close' : 'bluetooth'}
+              name={printer.isConnected ? 'close' : 'bluetooth'}
               size={18}
-              color={printerConnected ? colors.error : colors.accent}
+              color={printer.isConnected ? colors.error : colors.accent}
             />
           </TouchableOpacity>
         </View>
@@ -225,18 +242,101 @@ export default function CategoriesScreen() {
         <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
           <Ionicons name="print-outline" size={20} color={colors.accent} />
           <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Paper Size</Text>
-          <Text style={[styles.statValue, { color: colors.text }]}>58mm</Text>
+          <Text style={[styles.statValue, { color: colors.text }]}>{paperSize}</Text>
         </View>
         <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-          <Ionicons name="bluetooth-outline" size={20} color={printerConnected ? colors.success : colors.textMuted} />
+          <Ionicons name="bluetooth-outline" size={20} color={printer.isConnected ? colors.success : colors.textMuted} />
           <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Status</Text>
-          <Text style={[styles.statValue, { color: printerConnected ? colors.success : colors.textMuted }]}>
-            {printerConnected ? 'Online' : 'Offline'}
+          <Text style={[styles.statValue, { color: printer.isConnected ? colors.success : colors.textMuted }]}>
+            {printer.isConnected ? 'Online' : 'Offline'}
           </Text>
         </View>
       </View>
 
       <View style={{ height: 30 }} />
+
+      {/* Bluetooth Device Picker Modal */}
+      <Modal visible={showDevicePicker} animationType="slide" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.pickerModal, { backgroundColor: colors.card }]}>
+            <View style={styles.pickerHeader}>
+              <Text style={[styles.pickerTitle, { color: colors.text }]}>Connect Printer</Text>
+              <TouchableOpacity
+                onPress={() => setShowDevicePicker(false)}
+                style={[styles.pickerClose, { backgroundColor: colors.surface }]}
+                accessibilityLabel="Close"
+                accessibilityRole="button"
+              >
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.pickerHint, { color: colors.textSecondary }]}>
+              Make sure your printer is turned on and Bluetooth is enabled.
+            </Text>
+
+            {printer.isScanning ? (
+              <View style={styles.scanningWrap}>
+                <ActivityIndicator size="large" color={colors.accent} />
+                <Text style={[styles.scanningText, { color: colors.textMuted }]}>
+                  Scanning for devices...
+                </Text>
+              </View>
+            ) : printer.devices.length === 0 ? (
+              <View style={styles.scanningWrap}>
+                <Ionicons name="bluetooth-outline" size={48} color={colors.textMuted} />
+                <Text style={[styles.scanningText, { color: colors.textMuted }]}>
+                  No devices found
+                </Text>
+                <TouchableOpacity
+                  style={[styles.rescanBtn, { backgroundColor: colors.accentMuted }]}
+                  onPress={() => printer.scanDevices()}
+                >
+                  <Ionicons name="refresh" size={18} color={colors.accent} />
+                  <Text style={[styles.rescanText, { color: colors.accent }]}>Scan Again</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <FlatList
+                  data={printer.devices}
+                  keyExtractor={(item) => item.address}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={[styles.deviceItem, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}
+                      onPress={() => handleSelectDevice(item)}
+                      disabled={connectingAddress === item.address}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.deviceIcon, { backgroundColor: colors.accentMuted }]}>
+                        <Ionicons name="print-outline" size={20} color={colors.accent} />
+                      </View>
+                      <View style={styles.deviceInfo}>
+                        <Text style={[styles.deviceName, { color: colors.text }]}>{item.name}</Text>
+                        <Text style={[styles.deviceAddr, { color: colors.textMuted }]}>{item.address}</Text>
+                      </View>
+                      {connectingAddress === item.address ? (
+                        <ActivityIndicator size="small" color={colors.accent} />
+                      ) : (
+                        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                      )}
+                    </TouchableOpacity>
+                  )}
+                  ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+                  contentContainerStyle={{ paddingBottom: 10 }}
+                  showsVerticalScrollIndicator={false}
+                />
+                <TouchableOpacity
+                  style={[styles.rescanBtn, { backgroundColor: colors.accentMuted, alignSelf: 'center', marginTop: 12 }]}
+                  onPress={() => printer.scanDevices()}
+                >
+                  <Ionicons name="refresh" size={18} color={colors.accent} />
+                  <Text style={[styles.rescanText, { color: colors.accent }]}>Scan Again</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Template Picker Modal */}
       <Modal visible={showTemplatePicker} animationType="slide" transparent>
@@ -535,5 +635,55 @@ const styles = StyleSheet.create({
   pickerCreateText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  // Bluetooth device picker
+  scanningWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 14,
+  },
+  scanningText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  rescanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  rescanText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  deviceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  deviceIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  deviceInfo: {
+    flex: 1,
+  },
+  deviceName: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  deviceAddr: {
+    fontSize: 12,
+    fontWeight: '500',
   },
 });

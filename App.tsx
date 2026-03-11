@@ -9,6 +9,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 
 import { RootStackParamList, TabParamList } from './src/types/navigation';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
+import { PrinterProvider } from './src/contexts/PrinterContext';
 import CategoriesScreen from './src/screens/CategoriesScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import TemplatesScreen from './src/screens/TemplatesScreen';
@@ -123,7 +124,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <AppNavigator />
+        <PrinterProvider>
+          <AppNavigator />
+        </PrinterProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );

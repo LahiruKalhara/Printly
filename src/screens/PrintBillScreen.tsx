@@ -21,14 +21,16 @@ import QRCodeView from '../components/QRCodeView';
 import BarcodeView from '../components/BarcodeView';
 import { TemplateRow, SelectOption } from '../types';
 import { generateId, getCurrentDate, getCurrentTime } from '../utils/helpers';
-import { addToHistory } from '../utils/storage';
+import { addToHistory, getSettings } from '../utils/storage';
 import { useTheme } from '../contexts/ThemeContext';
+import { usePrinter } from '../contexts/PrinterContext';
 
 export default function PrintBillScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'PrintBill'>>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const printer = usePrinter();
 
   const templateName: string = route.params?.templateName || 'Bill';
   const templateId: string = route.params?.templateId || 'quick';
@@ -173,6 +175,7 @@ export default function PrintBillScreen() {
       }
     });
 
+    // Save to history
     await addToHistory({
       id: generateId(),
       templateId,
@@ -181,11 +184,26 @@ export default function PrintBillScreen() {
       rows: finalRows,
     });
 
-    Alert.alert(
-      'Printed!',
-      'Bill sent to printer.\n\n(Bluetooth printing requires APK build. This is a simulation.)',
-      [{ text: 'OK', onPress: () => navigation.goBack() }]
-    );
+    // Send to Bluetooth printer if connected
+    if (printer.isConnected) {
+      const settings = await getSettings();
+      const success = await printer.printReceipt(finalRows, settings.paperSize);
+      if (success) {
+        Alert.alert('Printed!', 'Bill sent to printer successfully.', [
+          { text: 'OK', onPress: () => navigation.goBack() },
+        ]);
+      } else {
+        Alert.alert('Print Error', 'Bill saved to history but printing failed. You can reprint from History.', [
+          { text: 'OK', onPress: () => navigation.goBack() },
+        ]);
+      }
+    } else {
+      Alert.alert(
+        'No Printer Connected',
+        'Bill saved to history. Connect a Bluetooth printer from the Home screen to print.',
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
+    }
   };
 
   const renderField = (row: TemplateRow) => {
