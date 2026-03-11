@@ -1,25 +1,23 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 import { Alert, PermissionsAndroid, Platform } from 'react-native';
 import { TemplateRow, PaperSize } from '../types';
 import { getSettings, saveSettings } from '../utils/storage';
 
-// Lazy-load native Bluetooth modules — they crash in Expo Go
-let BluetoothManager: any = null;
-let BluetoothEscposPrinter: any = null;
+// Lazy-load native Bluetooth module — crashes in Expo Go
+let BLEPrinter: any = null;
 let nativeModulesAvailable = false;
 
 try {
   const thermalPrinter = require('react-native-thermal-receipt-printer-image-qr');
-  BluetoothManager = thermalPrinter.BluetoothManager;
-  BluetoothEscposPrinter = thermalPrinter.BluetoothEscposPrinter;
-  nativeModulesAvailable = true;
+  BLEPrinter = thermalPrinter.BLEPrinter;
+  nativeModulesAvailable = !!BLEPrinter;
 } catch {
-  // Native modules not available (Expo Go) — will use simulation mode
+  // Native modules not available (Expo Go)
 }
 
 export interface BluetoothDevice {
-  name: string;
-  address: string;
+  device_name: string;
+  inner_mac_address: string;
 }
 
 interface PrinterContextType {
@@ -55,20 +53,17 @@ async function requestBluetoothPermissions(): Promise<boolean> {
     const apiLevel = Platform.Version;
 
     if (typeof apiLevel === 'number' && apiLevel >= 31) {
-      // Android 12+
       const results = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
       ]);
-
       return (
         results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === 'granted' &&
         results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === 'granted' &&
         results[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === 'granted'
       );
     } else {
-      // Android 11 and below
       const result = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
       );
@@ -104,33 +99,14 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
     setDevices([]);
 
     try {
-      // Enable Bluetooth if not already
-      const enabled = await BluetoothManager.isBluetoothEnabled();
-      if (!enabled) {
-        await BluetoothManager.enableBluetooth();
-      }
+      // Initialize BLE printer module
+      await BLEPrinter.init();
 
-      // Scan for paired + nearby devices
-      const paired = await BluetoothManager.scanDevices();
-      const parsed = typeof paired === 'string' ? JSON.parse(paired) : paired;
-
-      const pairedDevices: BluetoothDevice[] = (parsed.paired || [])
-        .filter((d: any) => d.name && d.address)
-        .map((d: any) => ({ name: d.name, address: d.address }));
-
-      const foundDevices: BluetoothDevice[] = (parsed.found || [])
-        .filter((d: any) => d.name && d.address)
-        .map((d: any) => ({ name: d.name, address: d.address }));
-
-      // Merge and deduplicate
-      const all = [...pairedDevices, ...foundDevices];
-      const unique = all.filter(
-        (d, i) => all.findIndex(x => x.address === d.address) === i
-      );
-
-      setDevices(unique);
+      // Get device list (paired BLE devices)
+      const deviceList: BluetoothDevice[] = await BLEPrinter.getDeviceList();
+      setDevices(deviceList || []);
     } catch (err: any) {
-      Alert.alert('Scan Failed', err?.message || 'Could not scan for Bluetooth devices.');
+      Alert.alert('Scan Failed', err?.message || 'Could not scan for Bluetooth devices. Make sure Bluetooth is enabled.');
     } finally {
       setIsScanning(false);
     }
@@ -140,10 +116,10 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
     if (!nativeModulesAvailable) return false;
 
     try {
-      await BluetoothManager.connect(address);
-      const device = devices.find(d => d.address === address);
+      await BLEPrinter.connectPrinter(address);
+      const device = devices.find(d => d.inner_mac_address === address);
       setIsConnected(true);
-      setConnectedDevice(device || { name: 'Printer', address });
+      setConnectedDevice(device || { device_name: 'Printer', inner_mac_address: address });
 
       // Save last connected printer
       const settings = await getSettings();
@@ -159,6 +135,13 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
   }, [devices]);
 
   const disconnect = useCallback(async () => {
+    try {
+      if (nativeModulesAvailable) {
+        await BLEPrinter.closeConn();
+      }
+    } catch {
+      // Ignore disconnect errors
+    }
     setIsConnected(false);
     setConnectedDevice(null);
   }, []);
@@ -180,90 +163,56 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
     const charWidth = paperSize === '58mm' ? 32 : 48;
 
     try {
-      // Initialize
-      await BluetoothEscposPrinter.printerInit();
-      await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.LEFT);
+      // Build the receipt text with ESC/POS formatting tags
+      // The library uses HTML-like tags: <C>, <B>, <CB>, <CM>, <CD>, <D>, <M>
+      // C = center, B = bold, D = double, M = medium
+      let receiptText = '';
 
       for (const row of rows) {
-        // Set alignment
-        const alignMap: Record<string, number> = {
-          left: BluetoothEscposPrinter.ALIGN.LEFT,
-          center: BluetoothEscposPrinter.ALIGN.CENTER,
-          right: BluetoothEscposPrinter.ALIGN.RIGHT,
-        };
-        const align = alignMap[row.align] ?? BluetoothEscposPrinter.ALIGN.LEFT;
-
         switch (row.type) {
           case 'text':
           case 'auto-date':
           case 'auto-time':
           case 'select':
           case 'input': {
-            await BluetoothEscposPrinter.printerAlign(align);
-            await BluetoothEscposPrinter.printText(
-              (row.text || '') + '\n',
-              {
-                encoding: 'GBK',
-                codepage: 0,
-                widthtimes: row.bold ? 1 : 0,
-                heigthtimes: 0,
-                fonttype: 0,
-              }
-            );
+            const text = row.text || '';
+            let line = '';
+
+            // Apply alignment
+            if (row.align === 'center') line += '<C>';
+            // Right alignment: pad with spaces
+            if (row.align === 'right') {
+              const padded = text.padStart(charWidth);
+              line += row.bold ? `<B>${padded}</B>` : padded;
+            } else {
+              line += row.bold ? `<B>${text}</B>` : text;
+            }
+            if (row.align === 'center') line += '</C>';
+
+            receiptText += line + '\n';
             break;
           }
 
           case 'separator': {
-            await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.LEFT);
-            await BluetoothEscposPrinter.printText(
-              '-'.repeat(charWidth) + '\n',
-              { encoding: 'GBK', codepage: 0, widthtimes: 0, heigthtimes: 0, fonttype: 0 }
-            );
+            receiptText += '-'.repeat(charWidth) + '\n';
             break;
           }
 
-          case 'qr-code': {
-            if (row.text) {
-              await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
-              await BluetoothEscposPrinter.printQRCode(
-                row.text,
-                200,
-                BluetoothEscposPrinter.ERROR_CORRECTION.L
-              );
-              await BluetoothEscposPrinter.printText('\n', {});
-            }
-            break;
-          }
-
-          case 'barcode': {
-            if (row.text) {
-              await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
-              await BluetoothEscposPrinter.printBarCode(
-                row.text,
-                BluetoothEscposPrinter.BARCODETYPE.CODE128,
-                3,
-                80,
-                0,
-                2
-              );
-              await BluetoothEscposPrinter.printText('\n', {});
-            }
-            break;
-          }
-
+          case 'qr-code':
+          case 'barcode':
           case 'image': {
-            await BluetoothEscposPrinter.printerAlign(BluetoothEscposPrinter.ALIGN.CENTER);
-            await BluetoothEscposPrinter.printText(
-              '[Image]\n',
-              { encoding: 'GBK', codepage: 0, widthtimes: 0, heigthtimes: 0, fonttype: 0 }
-            );
+            // These need special handling — print as text fallback for now
+            const label = row.type === 'qr-code' ? `[QR: ${row.text}]` :
+                          row.type === 'barcode' ? `[Barcode: ${row.text}]` :
+                          '[Image]';
+            receiptText += `<C>${label}</C>\n`;
             break;
           }
         }
       }
 
-      // Feed and cut
-      await BluetoothEscposPrinter.printText('\n\n\n', {});
+      // Print using printBill (adds cut + beep)
+      await BLEPrinter.printBill(receiptText, { encoding: 'UTF8' });
 
       return true;
     } catch (err: any) {

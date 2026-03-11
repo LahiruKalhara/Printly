@@ -50,8 +50,8 @@ export default function CategoriesScreen() {
   };
 
   const handleSelectDevice = async (device: BluetoothDevice) => {
-    setConnectingAddress(device.address);
-    const success = await printer.connectDevice(device.address);
+    setConnectingAddress(device.inner_mac_address);
+    const success = await printer.connectDevice(device.inner_mac_address);
     setConnectingAddress(null);
     if (success) {
       setShowDevicePicker(false);
@@ -154,7 +154,7 @@ export default function CategoriesScreen() {
           ]} />
           <View style={styles.printerInfo}>
             <Text style={[styles.printerLabel, { color: colors.text }]}>
-              {printer.isConnected ? (printer.connectedDevice?.name || 'Printer Connected') : 'No Printer'}
+              {printer.isConnected ? (printer.connectedDevice?.device_name || 'Printer Connected') : 'No Printer'}
             </Text>
             <Text style={[styles.printerSub, { color: colors.textMuted }]}>
               {printer.isConnected ? 'Ready to print' : 'Tap to connect'}
@@ -299,22 +299,22 @@ export default function CategoriesScreen() {
               <>
                 <FlatList
                   data={printer.devices}
-                  keyExtractor={(item) => item.address}
+                  keyExtractor={(item) => item.inner_mac_address}
                   renderItem={({ item }) => (
                     <TouchableOpacity
                       style={[styles.deviceItem, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}
                       onPress={() => handleSelectDevice(item)}
-                      disabled={connectingAddress === item.address}
+                      disabled={connectingAddress === item.inner_mac_address}
                       activeOpacity={0.7}
                     >
                       <View style={[styles.deviceIcon, { backgroundColor: colors.accentMuted }]}>
                         <Ionicons name="print-outline" size={20} color={colors.accent} />
                       </View>
                       <View style={styles.deviceInfo}>
-                        <Text style={[styles.deviceName, { color: colors.text }]}>{item.name}</Text>
-                        <Text style={[styles.deviceAddr, { color: colors.textMuted }]}>{item.address}</Text>
+                        <Text style={[styles.deviceName, { color: colors.text }]}>{item.device_name || 'Unknown Device'}</Text>
+                        <Text style={[styles.deviceAddr, { color: colors.textMuted }]}>{item.inner_mac_address}</Text>
                       </View>
-                      {connectingAddress === item.address ? (
+                      {connectingAddress === item.inner_mac_address ? (
                         <ActivityIndicator size="small" color={colors.accent} />
                       ) : (
                         <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
