@@ -1,0 +1,46 @@
+diff --git a/node_modules/react-native-thermal-receipt-printer-image-qr/android/build.gradle b/node_modules/react-native-thermal-receipt-printer-image-qr/android/build.gradle
+index 1908273..fb43828 100644
+--- a/node_modules/react-native-thermal-receipt-printer-image-qr/android/build.gradle
++++ b/node_modules/react-native-thermal-receipt-printer-image-qr/android/build.gradle
+@@ -1,12 +1,12 @@
+ apply plugin: 'com.android.library'
+ 
+ android {
+-    compileSdkVersion = 32
+-    buildToolsVersion = "32.0.0"
++    compileSdkVersion rootProject.ext.has("compileSdkVersion") ? rootProject.ext.get("compileSdkVersion") : 34
++    buildToolsVersion rootProject.ext.has("buildToolsVersion") ? rootProject.ext.get("buildToolsVersion") : "34.0.0"
+ 
+     defaultConfig {
+-        minSdkVersion 16
+-        targetSdkVersion 32
++        minSdkVersion rootProject.ext.has("minSdkVersion") ? rootProject.ext.get("minSdkVersion") : 24
++        targetSdkVersion rootProject.ext.has("targetSdkVersion") ? rootProject.ext.get("targetSdkVersion") : 34
+         versionCode 1
+         versionName "1.0"
+ 
+diff --git a/node_modules/react-native-thermal-receipt-printer-image-qr/android/src/main/java/com/pinmi/react/printer/adapter/BLEPrinterAdapter.java b/node_modules/react-native-thermal-receipt-printer-image-qr/android/src/main/java/com/pinmi/react/printer/adapter/BLEPrinterAdapter.java
+index 9d77969..e4ea49a 100644
+--- a/node_modules/react-native-thermal-receipt-printer-image-qr/android/src/main/java/com/pinmi/react/printer/adapter/BLEPrinterAdapter.java
++++ b/node_modules/react-native-thermal-receipt-printer-image-qr/android/src/main/java/com/pinmi/react/printer/adapter/BLEPrinterAdapter.java
+@@ -157,15 +157,19 @@ public class BLEPrinterAdapter implements PrinterAdapter{
+             try {
+                 this.mBluetoothSocket = (BluetoothSocket) device.getClass()
+                         .getMethod("createRfcommSocket", new Class[] { int.class }).invoke(device, 1);
++                if (this.mBluetoothSocket != null) {
++                    this.mBluetoothSocket.connect();
++                }
+             } catch (Exception e) {
+                 e.printStackTrace();
++                throw new IOException("Failed to connect via fallback method: " + e.getMessage());
+             }
+         } else {
+             this.mBluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(uuid);
+             this.mBluetoothSocket.connect();
+         }
+ 
+-        this.mBluetoothDevice = device;// 最后一步执行
++        this.mBluetoothDevice = device;
+ 
+     }
+ 

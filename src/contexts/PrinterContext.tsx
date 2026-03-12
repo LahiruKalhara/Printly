@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { Alert, PermissionsAndroid, Platform } from 'react-native';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import { Alert, Linking, NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import { TemplateRow, PaperSize } from '../types';
 import { getSettings, saveSettings } from '../utils/storage';
 
@@ -8,9 +8,13 @@ let BLEPrinter: any = null;
 let nativeModulesAvailable = false;
 
 try {
-  const thermalPrinter = require('react-native-thermal-receipt-printer-image-qr');
-  BLEPrinter = thermalPrinter.BLEPrinter;
-  nativeModulesAvailable = !!BLEPrinter;
+  // Check if the actual native module is registered (not just the JS wrapper)
+  const hasNativeModule = !!NativeModules.RNBLEPrinter;
+  if (hasNativeModule) {
+    const thermalPrinter = require('react-native-thermal-receipt-printer-image-qr');
+    BLEPrinter = thermalPrinter.BLEPrinter;
+    nativeModulesAvailable = !!BLEPrinter;
+  }
 } catch {
   // Native modules not available (Expo Go)
 }
@@ -79,12 +83,18 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
   const [connectedDevice, setConnectedDevice] = useState<BluetoothDevice | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
+  const devicesRef = useRef<BluetoothDevice[]>([]);
+
+  // Keep ref in sync with state to avoid stale closures
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
 
   const scanDevices = useCallback(async () => {
     if (!nativeModulesAvailable) {
       Alert.alert(
-        'Expo Go Detected',
-        'Bluetooth printing requires a development build (APK).\n\nRun: npx eas build --platform android --profile preview\n\nThen install the APK on your phone.'
+        'Bluetooth Not Available',
+        'Bluetooth native module is not loaded. This can happen in Expo Go or if the app needs to be rebuilt.\n\nRun: npx eas build --platform android --profile preview\n\nThen install the new APK on your phone.'
       );
       return;
     }
@@ -99,14 +109,35 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
     setDevices([]);
 
     try {
-      // Initialize BLE printer module
+      // Initialize Bluetooth adapter
       await BLEPrinter.init();
 
-      // Get device list (paired BLE devices)
+      // Get paired devices — only devices already paired in Android Bluetooth settings will appear
       const deviceList: BluetoothDevice[] = await BLEPrinter.getDeviceList();
       setDevices(deviceList || []);
+
+      if (!deviceList || deviceList.length === 0) {
+        Alert.alert(
+          'No Paired Printers Found',
+          'This app shows devices that are already paired in your phone\'s Bluetooth settings.\n\n' +
+          'Steps:\n' +
+          '1. Turn on your printer\n' +
+          '2. Open Android Settings → Bluetooth\n' +
+          '3. Pair with your printer there\n' +
+          '4. Come back and tap "Connect Printer" again',
+          [
+            { text: 'Open Bluetooth Settings', onPress: () => Linking.sendIntent('android.settings.BLUETOOTH_SETTINGS').catch(() => {}) },
+            { text: 'OK', style: 'cancel' },
+          ]
+        );
+      }
     } catch (err: any) {
-      Alert.alert('Scan Failed', err?.message || 'Could not scan for Bluetooth devices. Make sure Bluetooth is enabled.');
+      const msg = err?.message || String(err);
+      if (msg.includes('not enabled')) {
+        Alert.alert('Bluetooth Off', 'Please turn on Bluetooth and try again.');
+      } else {
+        Alert.alert('Scan Failed', msg || 'Could not scan for Bluetooth devices.');
+      }
     } finally {
       setIsScanning(false);
     }
@@ -117,7 +148,7 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
 
     try {
       await BLEPrinter.connectPrinter(address);
-      const device = devices.find(d => d.inner_mac_address === address);
+      const device = devicesRef.current.find(d => d.inner_mac_address === address);
       setIsConnected(true);
       setConnectedDevice(device || { device_name: 'Printer', inner_mac_address: address });
 
@@ -132,7 +163,7 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
       setConnectedDevice(null);
       return false;
     }
-  }, [devices]);
+  }, []);
 
   const disconnect = useCallback(async () => {
     try {
@@ -163,9 +194,9 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
     const charWidth = paperSize === '58mm' ? 32 : 48;
 
     try {
-      // Build the receipt text with ESC/POS formatting tags
-      // The library uses HTML-like tags: <C>, <B>, <CB>, <CM>, <CD>, <D>, <M>
-      // C = center, B = bold, D = double, M = medium
+      // Build receipt text with HTML-like tags that the library processes internally
+      // The library converts these tags to ESC/POS commands and Base64-encodes for the native side
+      // Tags: <C> center, <B> bold, <CB> center+bold, <D> double, <M> medium
       let receiptText = '';
 
       for (const row of rows) {
@@ -178,16 +209,19 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
             const text = row.text || '';
             let line = '';
 
-            // Apply alignment
-            if (row.align === 'center') line += '<C>';
-            // Right alignment: pad with spaces
-            if (row.align === 'right') {
-              const padded = text.padStart(charWidth);
-              line += row.bold ? `<B>${padded}</B>` : padded;
+            if (row.align === 'center' && row.bold) {
+              line = `<CB>${text}</CB>`;
+            } else if (row.align === 'center') {
+              line = `<C>${text}</C>`;
+            } else if (row.bold && row.align === 'right') {
+              line = `<B>${text.padStart(charWidth)}</B>`;
+            } else if (row.bold) {
+              line = `<B>${text}</B>`;
+            } else if (row.align === 'right') {
+              line = text.padStart(charWidth);
             } else {
-              line += row.bold ? `<B>${text}</B>` : text;
+              line = text;
             }
-            if (row.align === 'center') line += '</C>';
 
             receiptText += line + '\n';
             break;
@@ -198,20 +232,29 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
             break;
           }
 
-          case 'qr-code':
-          case 'barcode':
+          case 'qr-code': {
+            // Library doesn't support QR via printBill tags — print as text
+            if (row.text) {
+              receiptText += `<C>${row.text}</C>\n`;
+            }
+            break;
+          }
+
+          case 'barcode': {
+            if (row.text) {
+              receiptText += `<C>${row.text}</C>\n`;
+            }
+            break;
+          }
+
           case 'image': {
-            // These need special handling — print as text fallback for now
-            const label = row.type === 'qr-code' ? `[QR: ${row.text}]` :
-                          row.type === 'barcode' ? `[Barcode: ${row.text}]` :
-                          '[Image]';
-            receiptText += `<C>${label}</C>\n`;
+            receiptText += `<C>[Image]</C>\n`;
             break;
           }
         }
       }
 
-      // Print using printBill (adds cut + beep)
+      // printBill adds cut + beep automatically, and handles Base64 encoding internally
       await BLEPrinter.printBill(receiptText, { encoding: 'UTF8' });
 
       return true;
