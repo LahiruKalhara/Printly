@@ -1,6 +1,6 @@
 # Printly - Project Documentation
 
-> Last Updated: 2026-03-11
+> Last Updated: 2026-03-12 (v4.9)
 > Use this document to track progress and resume work at any time.
 
 ---
@@ -46,14 +46,19 @@
 | React Native Worklets | 0.5.1 | Required by Reanimated |
 | React Native Gesture Handler | ~2.28.0 | Gesture support |
 | React Native SVG | (Expo managed) | SVG rendering for barcodes |
-| react-native-thermal-receipt-printer-image-qr | ^0.1.12 | Bluetooth thermal printer communication |
+| react-native-thermal-receipt-printer-image-qr | ^0.1.12 | Bluetooth thermal printer communication (BLEPrinter API) |
+| patch-package | ^8.0.1 | Post-install patches for native library fixes |
 | qrcode (JS) | latest | Pure JS QR code matrix generation |
-| Expo Image Picker | (Expo managed) | Photo/image selection |
+| Expo Image Picker | (Expo managed) | Photo/image selection (free-form crop) |
+| Expo File System | (Expo managed) | File read/write for template export/import |
+| Expo Sharing | (Expo managed) | System share sheet for template export |
+| Expo Document Picker | (Expo managed) | File selection for template import |
 | @react-native-community/datetimepicker | latest | Native date/time picker modals |
 
 **Notes**:
 - `react-native-qrcode-svg` was replaced with pure JS `qrcode` package + custom `QRCodeView` component to avoid `css-tree` module resolution issues on Windows.
 - `react-native-ping` is shimmed (not installed) — only needed for WiFi printers, not Bluetooth.
+- The thermal printer library is patched via `patch-package` (see `patches/` directory) to fix Android SDK compatibility and Bluetooth socket connection issues.
 
 ---
 
@@ -61,13 +66,15 @@
 
 ```
 BillPrinterApp/
-├── App.tsx                          # Root - ThemeProvider + PrinterProvider + Navigation
+├── App.tsx                          # Root - AlertProvider + ThemeProvider + PrinterProvider + Navigation
 ├── index.ts                         # Entry point
 ├── app.json                         # Expo config (newArchEnabled: true)
 ├── eas.json                         # EAS Build config (preview, production profiles)
 ├── metro.config.js                  # Metro bundler config (react-native-ping shim)
 ├── .npmrc                           # npm config (legacy-peer-deps=true)
 ├── package.json                     # Dependencies
+├── patches/
+│   └── react-native-thermal-receipt-printer-image-qr+0.1.12.patch  # SDK & BLE socket fix
 ├── tsconfig.json                    # TypeScript config (strict, path mappings)
 ├── shims/
 │   └── react-native-ping.js        # Empty shim for unused network printer dep
@@ -77,10 +84,13 @@ BillPrinterApp/
     │   └── Printly.png              # App logo
     ├── components/
     │   ├── QRCodeView.tsx           # Pure JS QR code renderer (View-based)
-    │   └── BarcodeView.tsx          # SVG-based barcode renderer
+    │   ├── BarcodeView.tsx          # SVG-based barcode renderer
+    │   ├── AutoImage.tsx            # Dynamic aspect-ratio image component
+    │   └── CustomAlert.tsx          # Themed modal alert (success/error/warning/info/confirm)
     ├── contexts/
     │   ├── ThemeContext.tsx          # Dark/Light theme provider + useTheme hook
-    │   └── PrinterContext.tsx        # Bluetooth printer provider + usePrinter hook
+    │   ├── PrinterContext.tsx        # Bluetooth printer provider + usePrinter hook
+    │   └── AlertContext.tsx          # Global alert provider + useGlobalAlert hook
     ├── theme/
     │   └── index.ts                 # Color palettes (darkTheme, lightTheme, ThemeColors interface)
     ├── types/
@@ -139,7 +149,16 @@ BillPrinterApp/
 | History: search bar + time filters (All/Today/This Week/This Month) | HistoryScreen.tsx |
 | History: filtered clear + individual delete | HistoryScreen.tsx |
 | History: reprint button | HistoryScreen.tsx |
-| Templates gallery with search (My Templates only) | TemplatesScreen.tsx |
+| Templates gallery with search (2-column grid) | TemplatesScreen.tsx |
+| Template duplicate, export (.printly), import | TemplatesScreen.tsx |
+| Quick Print template type | TemplateEditorScreen.tsx, TemplatesScreen.tsx |
+| Font size control per row (small/normal/large) | TemplateEditorScreen.tsx |
+| Free-form image cropping (no fixed aspect ratio) | TemplateEditorScreen.tsx |
+| AutoImage component (dynamic aspect ratio) | AutoImage.tsx, all screens |
+| Input row with configurable position (top/bottom/left/right) | TemplateEditorScreen.tsx |
+| Themed custom modal alerts (replaces native Alert) | CustomAlert.tsx, AlertContext.tsx |
+| KeyboardAvoidingView on all input screens | All screens with TextInput |
+| 30-day rolling history retention | storage.ts |
 | Settings: theme toggle, paper size, about section | SettingsScreen.tsx |
 | AsyncStorage with try/catch + safeParse utility | storage.ts |
 | Accessibility labels and roles on all interactive elements | All screens |
@@ -151,10 +170,7 @@ BillPrinterApp/
 |---|---|
 | Image printing (bitmap conversion for ESC/POS) | MEDIUM |
 | Pre-built template library | MEDIUM |
-| Font size control per row | LOW |
-| Row duplication | LOW |
 | Drag-and-drop row reordering | LOW |
-| Export/import templates | LOW |
 | Multiple printer management | LOW |
 
 ---
@@ -180,11 +196,16 @@ interface TemplateRow {
   text: string;
   align: 'left' | 'center' | 'right';
   bold: boolean;
+  fontSize?: 'small' | 'normal' | 'large';
   type: 'text' | 'separator' | 'auto-date' | 'auto-time' | 'qr-code' | 'barcode' | 'image' | 'select' | 'input';
   imageUri?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  imageSize?: 'small' | 'medium' | 'large';
   options?: SelectOption[];
   selectedOption?: string;
   inputValue?: string;
+  inputPosition?: 'top' | 'bottom' | 'left' | 'right';
 }
 ```
 
@@ -196,6 +217,7 @@ interface Template {
   rows: TemplateRow[];
   createdAt: string;
   updatedAt: string;
+  isQuickPrint?: boolean;
 }
 ```
 
@@ -210,12 +232,11 @@ interface PrintJob {
 }
 ```
 
-### PrinterDevice
+### PrinterDevice (BluetoothDevice)
 ```typescript
-interface PrinterDevice {
-  name: string;
-  address: string;
-  connected: boolean;
+interface BluetoothDevice {
+  device_name: string;
+  inner_mac_address: string;
 }
 ```
 
@@ -229,7 +250,7 @@ interface AppSettings {
 
 ### Storage Keys
 - `printer_app_templates` - Template[] array
-- `printer_app_history` - PrintJob[] array (max 100, newest first)
+- `printer_app_history` - PrintJob[] array (30-day rolling retention, newest first)
 - `printer_app_settings` - AppSettings object
 - `printer_app_theme` - 'dark' | 'light'
 
@@ -264,25 +285,36 @@ interface AppSettings {
   - Individual delete per card with confirmation
   - Clear button respects active filters (filtered clear)
   - Relative timestamps (Just now, 5m ago, 3h ago, etc.)
+  - 30-day rolling data retention
+  - KeyboardAvoidingView for search input
 
 ### 3. TemplatesScreen (Tab 3 - "Templates")
 - **File**: `src/screens/TemplatesScreen.tsx`
 - **Purpose**: Browse and manage saved templates
 - **Features**:
   - Search bar filters by name
-  - 2-column grid with template cards (monospace preview)
+  - 2-column grid with template cards (monospace preview, Dimensions-based layout)
+  - Separate sections for Quick Print templates and regular templates
+  - Plus button offers choice: Quick Print or Regular template
+  - Duplicate template (appears next to original)
+  - Export template as `.printly` file (images embedded as base64)
+  - Import `.printly` files with automatic image restoration
   - Delete with confirmation
   - Tap to edit → TemplateEditorScreen
+  - KeyboardAvoidingView for search input
 
 ### 4. TemplateEditorScreen (Stack)
 - **File**: `src/screens/TemplateEditorScreen.tsx`
 - **Purpose**: Create and edit bill/receipt templates
-- **Route Params**: `templateId?`, `rows?`, `templateName?`, `initialRowType?`
+- **Route Params**: `templateId?`, `rows?`, `templateName?`, `initialRowType?`, `isQuickPrint?`
 - **9 row types**: text, separator, auto-date, auto-time, qr-code, barcode, image, select, input
 - **Select row**: options with hasInput toggle, inputTitle, position selector, independent bold/alignment for input
-- **Input row**: standalone fillable text field with title
+- **Input row**: standalone fillable text field with title and configurable position
+- **Image row**: free-form cropping (no fixed aspect ratio), stores original dimensions
+- **Font size**: small/normal/large per text row
 - **Bottom bar**: Discard + Save Template only (no print button)
-- **Features**: bold toggle, alignment cycling, reorder, preview modal, save with name
+- **Features**: bold toggle, alignment cycling, font size, reorder, preview modal (AutoImage), save with name
+- **KeyboardAvoidingView** on editor and save modal
 
 ### 5. PrintBillScreen (Stack)
 - **File**: `src/screens/PrintBillScreen.tsx`
@@ -298,6 +330,8 @@ interface AppSettings {
   - "Print Bill" button → sends to Bluetooth printer if connected
   - Falls back gracefully if no printer (saves to history with message)
   - Saves to history on every print
+  - AutoImage component for dynamic aspect-ratio image rendering
+  - KeyboardAvoidingView for form inputs
 
 ### 6. SettingsScreen (Stack)
 - **File**: `src/screens/SettingsScreen.tsx`
@@ -321,9 +355,10 @@ interface AppSettings {
 | `safeParse<T>(data, fallback)` | `T` | Safe JSON.parse with fallback |
 | `getTemplates()` | `Promise<Template[]>` | Read all templates |
 | `saveTemplate(template)` | `Promise<void>` | Create or update (by ID match) |
+| `saveAllTemplates(templates)` | `Promise<void>` | Batch save all templates |
 | `deleteTemplate(id)` | `Promise<void>` | Remove by ID |
 | `getHistory()` | `Promise<PrintJob[]>` | Read all print jobs |
-| `addToHistory(job)` | `Promise<void>` | Add to front, cap at 100 |
+| `addToHistory(job)` | `Promise<void>` | Add to front, 30-day rolling retention |
 | `deleteHistoryItem(id)` | `Promise<void>` | Delete single history entry |
 | `clearHistory()` | `Promise<void>` | Clear all history |
 | `getSettings()` | `Promise<AppSettings>` | Read settings (default: 58mm) |
@@ -332,12 +367,14 @@ interface AppSettings {
 All storage functions wrapped in try/catch for error safety.
 
 ### escpos.ts (`src/utils/escpos.ts`)
-ESC/POS command builder for thermal printers. Converts template rows into printer commands.
+ESC/POS command builder for thermal printers. Converts template rows into raw ESC/POS byte commands.
 - Text with alignment and bold
 - Separators (dashes matching paper width)
 - QR codes (native GS ( k command)
 - Barcodes (Code 128)
 - Paper feed and cut
+
+**Note**: The `escpos.ts` module builds raw ESC/POS byte sequences. However, the current `printReceipt()` in PrinterContext uses `BLEPrinter.printBill()` with HTML-like tags (`<C>`, `<B>`, `<CB>`) instead, as the library handles ESC/POS conversion internally. The raw `escpos.ts` builder is retained for potential future use with `printRawData()`.
 
 ---
 
@@ -345,21 +382,31 @@ ESC/POS command builder for thermal printers. Converts template rows into printe
 
 ### Architecture
 - **PrinterContext** (`src/contexts/PrinterContext.tsx`) — Global React context wrapping the app
-- **Library**: `react-native-thermal-receipt-printer-image-qr` (Bluetooth Classic / SPP)
-- **Lazy loading**: Native modules loaded via `try/catch require()` — app works in both Expo Go (simulation) and APK builds (real printing)
+- **Library**: `react-native-thermal-receipt-printer-image-qr` using the **BLEPrinter** API (not BluetoothManager/BluetoothEscposPrinter)
+- **Native module**: `RNBLEPrinter` — checked via `NativeModules.RNBLEPrinter` before loading JS wrapper
+- **Lazy loading**: Native module availability checked via `NativeModules.RNBLEPrinter` before `require()` — app works in both Expo Go (simulation) and APK builds (real printing)
+- **patch-package**: The library's Android `build.gradle` is patched to use the project's `compileSdkVersion`/`targetSdkVersion` (34) instead of hardcoded 32, and `BLEPrinterAdapter.java` is patched to fix the Bluetooth socket fallback connection (adds `mBluetoothSocket.connect()` call after `createRfcommSocket`)
+
+### BluetoothDevice Interface
+```typescript
+interface BluetoothDevice {
+  device_name: string;       // Printer name (from BLEPrinter API)
+  inner_mac_address: string; // MAC address (from BLEPrinter API)
+}
+```
 
 ### PrinterContext API (usePrinter hook)
 | Property/Method | Type | Description |
 |---|---|---|
 | `isConnected` | `boolean` | Whether a printer is connected |
-| `connectedDevice` | `BluetoothDevice \| null` | Connected device info (name, address) |
+| `connectedDevice` | `BluetoothDevice \| null` | Connected device info (device_name, inner_mac_address) |
 | `isScanning` | `boolean` | Whether scanning is in progress |
-| `devices` | `BluetoothDevice[]` | Discovered devices list |
+| `devices` | `BluetoothDevice[]` | Discovered paired devices list |
 | `isNativeAvailable` | `boolean` | Whether native Bluetooth modules loaded |
-| `scanDevices()` | `Promise<void>` | Scan for paired + nearby Bluetooth devices |
+| `scanDevices()` | `Promise<void>` | Init BLE adapter + get paired devices list |
 | `connectDevice(address)` | `Promise<boolean>` | Connect to a device by MAC address |
-| `disconnect()` | `Promise<void>` | Disconnect from current printer |
-| `printReceipt(rows, paperSize)` | `Promise<boolean>` | Send ESC/POS commands to printer |
+| `disconnect()` | `Promise<void>` | Disconnect from current printer (calls `BLEPrinter.closeConn()`) |
+| `printReceipt(rows, paperSize)` | `Promise<boolean>` | Build receipt with HTML-like tags + send via `BLEPrinter.printBill()` |
 
 ### Android Permissions (app.json)
 - `BLUETOOTH`
@@ -370,14 +417,29 @@ ESC/POS command builder for thermal printers. Converts template rows into printe
 
 Runtime permissions are requested via `PermissionsAndroid.requestMultiple()` before scanning.
 
+### Key Bluetooth Implementation Details
+- **Device scanning**: Uses `BLEPrinter.init()` + `BLEPrinter.getDeviceList()` to get paired devices. The library throws "No Device Found" when list is empty (handled gracefully).
+- **Empty device list**: Shows helpful alert with steps to pair in Android Bluetooth settings, with a button to open Bluetooth Settings directly via `Linking.openSettings()`.
+- **Connection**: Uses `BLEPrinter.connectPrinter(address)` instead of the old `BluetoothManager.connect()`.
+- **Stale closure fix**: `devicesRef` (useRef) keeps device list in sync to avoid stale closures in `connectDevice` callback.
+- **Disconnect**: Calls `BLEPrinter.closeConn()` with error suppression.
+- **Print pre-check**: Before printing, a no-op `RNBLEPrinter.printRawData('')` call verifies the Bluetooth socket is still alive. If the socket is dead, the error callback fires and the user is notified (with auto-disconnect).
+- **Print format**: Uses `BLEPrinter.printBill()` with HTML-like tags (`<C>`, `<B>`, `<CB>`, etc.) instead of the old `BluetoothEscposPrinter.printText()` API. The library internally converts tags to ESC/POS commands and Base64-encodes them.
+- **Print failure handling**: On print error, `isConnected` and `connectedDevice` are reset to prevent further silent failures.
+
 ### Printing Flow
 1. User taps Bluetooth button on Home → device picker modal opens
-2. App scans for paired + nearby devices (shows all Bluetooth devices)
-3. User taps a printer → connects via `BluetoothManager.connect()`
+2. App calls `BLEPrinter.init()` then `BLEPrinter.getDeviceList()` for paired devices
+3. User taps a printer → connects via `BLEPrinter.connectPrinter(address)`
 4. Last connected printer address saved to AsyncStorage
 5. User fills bill on PrintBillScreen → taps Print
-6. `printReceipt()` sends ESC/POS commands via `BluetoothEscposPrinter`
-7. Bill saved to history regardless of print success
+6. Pre-check: `RNBLEPrinter.printRawData('')` verifies socket is alive
+7. `BLEPrinter.printBill(receiptText)` sends HTML-tagged receipt text
+8. Bill saved to history regardless of print success
+
+### Library Patch Details (`patches/react-native-thermal-receipt-printer-image-qr+0.1.12.patch`)
+1. **`android/build.gradle`**: Changed hardcoded `compileSdkVersion=32` and `targetSdkVersion=32` to inherit from `rootProject.ext` (defaults to 34). Changed `minSdkVersion` from 16 to 24.
+2. **`BLEPrinterAdapter.java`**: Fixed Bluetooth socket fallback — the `createRfcommSocket` fallback path was missing the `.connect()` call, causing silent connection failures. Added proper error propagation.
 
 ---
 
@@ -436,6 +498,7 @@ npx eas build --platform android --profile production
 | `.npmrc` | legacy-peer-deps for thermal printer library compatibility |
 | `metro.config.js` | react-native-ping shim for Metro resolution |
 | `shims/react-native-ping.js` | Empty module shim (WiFi printer dep not needed) |
+| `patches/react-native-thermal-receipt-printer-image-qr+0.1.12.patch` | SDK version + BLE socket fix, applied via `postinstall: patch-package` |
 
 ---
 
@@ -465,8 +528,10 @@ npx eas build --platform android --profile production
 
 ### Known Limitations
 1. **Image printing** — ESC/POS bitmap conversion not implemented; prints `[Image]` placeholder
-2. **Printer auto-reconnect** — Last printer address is saved but auto-reconnect on app start is not implemented
-3. **WiFi printers** — Only Bluetooth Classic supported; `react-native-ping` shimmed out
+2. **QR/Barcode printing** — `BLEPrinter.printBill()` does not support native QR/barcode commands via HTML tags; QR and barcode values are printed as centered text instead
+3. **Printer auto-reconnect** — Last printer address is saved but auto-reconnect on app start is not implemented
+4. **WiFi printers** — Only Bluetooth Classic supported; `react-native-ping` shimmed out
+5. **Device discovery** — Only shows devices already paired in Android Bluetooth settings; no active BLE scanning/discovery
 
 ### Future Enhancements
 | Feature | Priority |
@@ -474,10 +539,7 @@ npx eas build --platform android --profile production
 | Image bitmap printing via ESC/POS | MEDIUM |
 | Pre-built template library | MEDIUM |
 | Auto-reconnect to last printer on app start | MEDIUM |
-| Font size control per row | LOW |
-| Row duplication | LOW |
 | Drag-and-drop row reordering | LOW |
-| Export/import templates (JSON/share) | LOW |
 | Multiple printer profiles | LOW |
 
 ---
@@ -503,7 +565,19 @@ npx eas build --platform android --profile production
 | 3.2 | Real Bluetooth printing in PrintBillScreen | COMPLETED | 2026-03-11 |
 | 3.3 | Expo Go fallback (lazy native module loading) | COMPLETED | 2026-03-11 |
 | 3.4 | EAS Build configuration + dependency fixes | COMPLETED | 2026-03-11 |
+| 3.5 | Fix Bluetooth: switch to BLEPrinter API (from BluetoothManager) | COMPLETED | 2026-03-12 |
+| 3.6 | Patch thermal printer library for EAS build (SDK + socket fix) | COMPLETED | 2026-03-12 |
+| 3.7 | Fix empty device list error + silent print failure detection | COMPLETED | 2026-03-12 |
 | 4.0 | GitHub push (LahiruKalhara/Printly) | COMPLETED | 2026-03-11 |
+| 4.1 | Free-form image cropping + AutoImage component | COMPLETED | 2026-03-12 |
+| 4.2 | Font size control per row (small/normal/large) | COMPLETED | 2026-03-12 |
+| 4.3 | Quick Print template type | COMPLETED | 2026-03-12 |
+| 4.4 | Template duplicate, export (.printly), import | COMPLETED | 2026-03-12 |
+| 4.5 | Themed custom modal alerts (AlertContext + CustomAlert) | COMPLETED | 2026-03-12 |
+| 4.6 | KeyboardAvoidingView on all input screens | COMPLETED | 2026-03-12 |
+| 4.7 | 30-day rolling history retention | COMPLETED | 2026-03-12 |
+| 4.8 | Input row position control + paste button | COMPLETED | 2026-03-12 |
+| 4.9 | 2-column template grid (Dimensions-based) | COMPLETED | 2026-03-12 |
 
 ---
 

@@ -5,21 +5,24 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Alert,
   Modal,
   ScrollView,
   Image,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AutoImage from '../components/AutoImage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PrintJob, TemplateRow } from '../types';
+import { PrintJob, TemplateRow, FontSize, ImageSize } from '../types';
 import { RootStackParamList } from '../types/navigation';
 import { getHistory, clearHistory, addToHistory, deleteHistoryItem } from '../utils/storage';
 import { formatTimeAgo } from '../utils/helpers';
 import { useTheme } from '../contexts/ThemeContext';
+import { useGlobalAlert } from '../contexts/AlertContext';
 import QRCodeView from '../components/QRCodeView';
 import BarcodeView from '../components/BarcodeView';
 
@@ -27,6 +30,7 @@ export default function HistoryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { showAlert } = useGlobalAlert();
   const [history, setHistory] = useState<PrintJob[]>([]);
   const [previewJob, setPreviewJob] = useState<PrintJob | null>(null);
   const [search, setSearch] = useState('');
@@ -74,7 +78,7 @@ export default function HistoryScreen() {
       ? `Delete ${count} filtered print job${count !== 1 ? 's' : ''}?`
       : 'Are you sure you want to clear all print history?';
 
-    Alert.alert(title, message, [
+    showAlert('confirm', title, message, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: isFiltered ? `Delete ${count}` : 'Clear all',
@@ -99,7 +103,7 @@ export default function HistoryScreen() {
   };
 
   const handleDelete = (job: PrintJob) => {
-    Alert.alert('Delete', `Delete "${job.templateName}" from history?`, [
+    showAlert('confirm', 'Delete', `Delete "${job.templateName}" from history?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -120,6 +124,12 @@ export default function HistoryScreen() {
     navigation.navigate('PrintBill', { rows: job.rows, templateName: job.templateName, templateId: job.templateId });
   };
 
+  const getPreviewFontSize = (size?: FontSize) => {
+    if (size === 'small') return 10;
+    if (size === 'large') return 18;
+    return 13;
+  };
+
   const renderPreviewRow = (row: TemplateRow) => {
     if (row.type === 'qr-code') {
       return (
@@ -136,10 +146,11 @@ export default function HistoryScreen() {
       );
     }
     if (row.type === 'image' && row.imageUri) {
+      const pct = row.imageSize === 'small' ? 40
+        : row.imageSize === 'large' ? 90
+        : 65;
       return (
-        <View key={row.id} style={[styles.previewRowWrap, { justifyContent: 'center' }]}>
-          <Image source={{ uri: row.imageUri }} style={styles.previewImage} resizeMode="contain" />
-        </View>
+        <AutoImage key={row.id} uri={row.imageUri} widthPercent={pct} />
       );
     }
     if (row.type === 'separator') {
@@ -150,7 +161,7 @@ export default function HistoryScreen() {
         key={row.id}
         style={[
           styles.receiptText,
-          { textAlign: row.align },
+          { textAlign: row.align, fontSize: getPreviewFontSize(row.fontSize) },
           row.bold && { fontWeight: 'bold' },
         ]}
       >
@@ -216,7 +227,11 @@ export default function HistoryScreen() {
   ];
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+    <KeyboardAvoidingView
+      style={[styles.container, { backgroundColor: colors.bg }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
+    >
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View>
           <Text style={[styles.title, { color: colors.text }]}>History</Text>
@@ -358,7 +373,7 @@ export default function HistoryScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

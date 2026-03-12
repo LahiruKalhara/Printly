@@ -7,11 +7,13 @@ export type RootStackParamList = {
     rows?: TemplateRow[];
     templateName?: string;
     initialRowType?: TemplateRow['type'];
+    isQuickPrint?: boolean;
   } | undefined;
   PrintBill: {
     templateId?: string;
     rows?: TemplateRow[];
     templateName?: string;
+    isQuickPrint?: boolean;
   };
   Settings: undefined;
 };

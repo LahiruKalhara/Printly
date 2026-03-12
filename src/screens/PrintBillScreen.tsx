@@ -6,10 +6,13 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Modal,
   Image,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import AutoImage from '../components/AutoImage';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,10 +22,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import QRCodeView from '../components/QRCodeView';
 import BarcodeView from '../components/BarcodeView';
-import { TemplateRow, SelectOption } from '../types';
+import { TemplateRow, SelectOption, FontSize, ImageSize } from '../types';
 import { generateId, getCurrentDate, getCurrentTime } from '../utils/helpers';
 import { addToHistory, getSettings } from '../utils/storage';
 import { useTheme } from '../contexts/ThemeContext';
+import { useGlobalAlert } from '../contexts/AlertContext';
 import { usePrinter } from '../contexts/PrinterContext';
 
 export default function PrintBillScreen() {
@@ -31,10 +35,12 @@ export default function PrintBillScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const printer = usePrinter();
+  const { showAlert } = useGlobalAlert();
 
   const templateName: string = route.params?.templateName || 'Bill';
   const templateId: string = route.params?.templateId || 'quick';
   const initialRows: TemplateRow[] = route.params?.rows || [];
+  const isQuickPrint: boolean = route.params?.isQuickPrint || false;
 
   // Resolve auto fields and prepare editable state
   const [rows, setRows] = useState<TemplateRow[]>(
@@ -64,6 +70,7 @@ export default function PrintBillScreen() {
     });
     return map;
   });
+
 
   const openDatePicker = (rowId: string) => {
     setActiveDateTimeRowId(rowId);
@@ -127,7 +134,7 @@ export default function PrintBillScreen() {
       r => r.type === 'select' && (r.options || []).length > 0 && !r.selectedOption
     );
     if (unselected.length > 0) {
-      Alert.alert('Missing Selection', 'Please select an option for all dropdown fields.');
+      showAlert('warning', 'Missing Selection', 'Please select an option for all dropdown fields.');
       return;
     }
 
@@ -138,14 +145,14 @@ export default function PrintBillScreen() {
       return opt?.hasInput && !(r.inputValue || '').trim();
     });
     if (missingInput.length > 0) {
-      Alert.alert('Missing Input', 'Please fill in all required text fields.');
+      showAlert('warning', 'Missing Input', 'Please fill in all required text fields.');
       return;
     }
 
     // Check if any input rows are empty
     const emptyInputs = rows.filter(r => r.type === 'input' && !(r.inputValue || '').trim());
     if (emptyInputs.length > 0) {
-      Alert.alert('Missing Input', 'Please fill in all input fields.');
+      showAlert('warning', 'Missing Input', 'Please fill in all input fields.');
       return;
     }
 
@@ -168,8 +175,24 @@ export default function PrintBillScreen() {
           });
         }
       } else if (r.type === 'input') {
-        const inputText = r.text ? `${r.text}: ${r.inputValue || ''}` : (r.inputValue || '');
-        finalRows.push({ ...r, text: inputText, type: 'text' });
+        const pos = r.inputPosition || 'bottom';
+        const title = r.text || '';
+        const value = r.inputValue || '';
+
+        if (!title) {
+          finalRows.push({ ...r, text: value, type: 'text' });
+        } else if (pos === 'right') {
+          finalRows.push({ ...r, text: `${title} - ${value}`, type: 'text' });
+        } else if (pos === 'left') {
+          finalRows.push({ ...r, text: `${value} - ${title}`, type: 'text' });
+        } else if (pos === 'top') {
+          finalRows.push({ ...r, id: r.id + '_val', text: value, type: 'text' });
+          finalRows.push({ ...r, text: title, type: 'text' });
+        } else {
+          // bottom
+          finalRows.push({ ...r, text: title, type: 'text' });
+          finalRows.push({ ...r, id: r.id + '_val', text: value, type: 'text' });
+        }
       } else {
         finalRows.push(r);
       }
@@ -189,20 +212,26 @@ export default function PrintBillScreen() {
       const settings = await getSettings();
       const success = await printer.printReceipt(finalRows, settings.paperSize);
       if (success) {
-        Alert.alert('Printed!', 'Bill sent to printer successfully.', [
+        showAlert('success', 'Printed!', 'Bill sent to printer successfully.', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       } else {
-        Alert.alert('Print Error', 'Bill saved to history but printing failed. You can reprint from History.', [
+        showAlert('error', 'Print Error', 'Bill saved to history but printing failed. You can reprint from History.', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       }
     } else {
-      Alert.alert(
-        'No Printer Connected',
+      showAlert('info', 'No Printer Connected',
         'Bill saved to history. Connect a Bluetooth printer from the Home screen to print.',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
+    }
+  };
+
+  const handlePaste = async (rowId: string, field: 'inputValue' | 'text' = 'inputValue') => {
+    const clip = await Clipboard.getStringAsync();
+    if (clip) {
+      updateRow(rowId, { [field]: clip });
     }
   };
 
@@ -245,13 +274,22 @@ export default function PrintBillScreen() {
             {inputTitle ? (
               <Text style={[styles.fieldLabel, { color: colors.textMuted, marginBottom: 4 }]}>{inputTitle}</Text>
             ) : null}
-            <TextInput
-              style={[styles.fieldInput, { color: colors.text }]}
-              value={row.inputValue || ''}
-              onChangeText={(text) => updateRow(row.id, { inputValue: text })}
-              placeholder={placeholder}
-              placeholderTextColor={colors.textMuted}
-            />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TextInput
+                style={[styles.fieldInput, { color: colors.text, flex: 1 }]}
+                value={row.inputValue || ''}
+                onChangeText={(text) => updateRow(row.id, { inputValue: text })}
+                placeholder={placeholder}
+                placeholderTextColor={colors.textMuted}
+              />
+              <TouchableOpacity
+                onPress={() => handlePaste(row.id)}
+                style={[styles.pasteBtn, { backgroundColor: colors.surface }]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="clipboard-outline" size={16} color={colors.accent} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       ) : null;
@@ -311,13 +349,22 @@ export default function PrintBillScreen() {
             {row.text ? (
               <Text style={[styles.fieldLabel, { color: colors.textMuted, marginBottom: 4 }]}>{row.text}</Text>
             ) : null}
-            <TextInput
-              style={[styles.fieldInput, { color: colors.text }]}
-              value={row.inputValue || ''}
-              onChangeText={(text) => updateRow(row.id, { inputValue: text })}
-              placeholder={row.text ? `Enter ${row.text}...` : 'Enter value...'}
-              placeholderTextColor={colors.textMuted}
-            />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TextInput
+                style={[styles.fieldInput, { color: colors.text, flex: 1 }]}
+                value={row.inputValue || ''}
+                onChangeText={(text) => updateRow(row.id, { inputValue: text })}
+                placeholder={row.text ? `Enter ${row.text}...` : 'Enter value...'}
+                placeholderTextColor={colors.textMuted}
+              />
+              <TouchableOpacity
+                onPress={() => handlePaste(row.id)}
+                style={[styles.pasteBtn, { backgroundColor: colors.surface }]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="clipboard-outline" size={16} color={colors.accent} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       );
@@ -411,9 +458,11 @@ export default function PrintBillScreen() {
             <View style={[styles.fieldIcon, { backgroundColor: colors.accentMuted }]}>
               <Ionicons name="image-outline" size={18} color={colors.accent} />
             </View>
-            <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>Image</Text>
+            <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>
+              Image · {(row.imageSize || 'medium').charAt(0).toUpperCase() + (row.imageSize || 'medium').slice(1)}
+            </Text>
           </View>
-          <Image source={{ uri: row.imageUri }} style={styles.fieldImage} resizeMode="contain" />
+          <AutoImage uri={row.imageUri} widthPercent={100} />
         </View>
       );
     }
@@ -455,6 +504,12 @@ export default function PrintBillScreen() {
     return null;
   };
 
+  const getPreviewFontSize = (size?: FontSize) => {
+    if (size === 'small') return 10;
+    if (size === 'large') return 18;
+    return 13;
+  };
+
   // Receipt preview
   const renderPreviewRow = (row: TemplateRow) => {
     if (row.type === 'qr-code') {
@@ -472,28 +527,41 @@ export default function PrintBillScreen() {
       );
     }
     if (row.type === 'image' && row.imageUri) {
+      const pct = row.imageSize === 'small' ? 40
+        : row.imageSize === 'large' ? 90
+        : 65;
       return (
-        <View key={row.id} style={[styles.previewRowWrap, { justifyContent: 'center' }]}>
-          <Image source={{ uri: row.imageUri }} style={styles.previewImage} resizeMode="contain" />
-        </View>
+        <AutoImage key={row.id} uri={row.imageUri} widthPercent={pct} />
       );
     }
     // Input rows
     if (row.type === 'input') {
-      const displayText = row.inputValue
-        ? (row.text ? `${row.text}: ${row.inputValue}` : row.inputValue)
-        : (row.text ? `${row.text}: ___________` : '___________');
+      const pos = row.inputPosition || 'bottom';
+      const title = row.text || '';
+      const value = row.inputValue || '___________';
+      const textStyle = [
+        styles.receiptText,
+        { textAlign: row.align, fontSize: getPreviewFontSize(row.fontSize) } as any,
+        row.bold && { fontWeight: 'bold' as const },
+      ];
+
+      if (!title) {
+        return <Text key={row.id} style={textStyle}>{value}</Text>;
+      }
+
+      if (pos === 'right') {
+        return <Text key={row.id} style={textStyle}>{`${title} - ${value}`}</Text>;
+      }
+      if (pos === 'left') {
+        return <Text key={row.id} style={textStyle}>{`${value} - ${title}`}</Text>;
+      }
+      // top or bottom
       return (
-        <Text
-          key={row.id}
-          style={[
-            styles.receiptText,
-            { textAlign: row.align },
-            row.bold && { fontWeight: 'bold' },
-          ]}
-        >
-          {displayText}
-        </Text>
+        <View key={row.id}>
+          {pos === 'top' && <Text style={textStyle}>{value}</Text>}
+          <Text style={textStyle}>{title}</Text>
+          {pos === 'bottom' && <Text style={textStyle}>{value}</Text>}
+        </View>
       );
     }
 
@@ -506,7 +574,7 @@ export default function PrintBillScreen() {
           <Text
             style={[
               styles.receiptText,
-              { textAlign: row.align },
+              { textAlign: row.align, fontSize: getPreviewFontSize(row.fontSize) },
               row.bold && { fontWeight: 'bold' },
             ]}
           >
@@ -531,7 +599,7 @@ export default function PrintBillScreen() {
         key={row.id}
         style={[
           styles.receiptText,
-          { textAlign: row.align },
+          { textAlign: row.align, fontSize: getPreviewFontSize(row.fontSize) },
           row.bold && { fontWeight: 'bold' },
         ]}
       >
@@ -543,7 +611,11 @@ export default function PrintBillScreen() {
   const activeSelectRow = rows.find(r => r.id === activeSelectRowId);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+    <KeyboardAvoidingView
+      style={[styles.container, { backgroundColor: colors.bg }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
+    >
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.divider, paddingTop: insets.top + 8 }]}>
         <TouchableOpacity
@@ -555,7 +627,9 @@ export default function PrintBillScreen() {
           <Ionicons name="chevron-back" size={20} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Print Bill</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            {isQuickPrint ? 'Quick Print' : 'Print Bill'}
+          </Text>
           <Text style={[styles.headerSub, { color: colors.textMuted }]}>{templateName}</Text>
         </View>
         <TouchableOpacity
@@ -574,8 +648,21 @@ export default function PrintBillScreen() {
         contentContainerStyle={{ paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>FILL IN YOUR BILL</Text>
-        {rows.map(renderField)}
+        <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
+          {isQuickPrint ? 'FILL IN THE FIELDS' : 'FILL IN YOUR BILL'}
+        </Text>
+        {isQuickPrint
+          ? rows.filter(r => r.type === 'input' || r.type === 'select').map(renderField)
+          : rows.map(renderField)
+        }
+        {isQuickPrint && rows.filter(r => r.type === 'input' || r.type === 'select').length === 0 && (
+          <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+            <Ionicons name="checkmark-circle-outline" size={48} color={colors.textMuted} />
+            <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: '500', marginTop: 12 }}>
+              No fields to fill. Ready to print!
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       {/* Bottom: Print Button */}
@@ -771,7 +858,7 @@ export default function PrintBillScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -875,15 +962,22 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     paddingVertical: 0,
   },
+  pasteBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   fieldPreview: {
     alignItems: 'center',
     marginTop: 14,
   },
   fieldImage: {
     width: '100%',
-    height: 120,
     borderRadius: 8,
     marginTop: 12,
+    overflow: 'hidden',
   },
   separatorRow: {
     borderBottomWidth: 1,

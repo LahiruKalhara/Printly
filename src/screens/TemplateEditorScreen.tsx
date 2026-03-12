@@ -6,12 +6,14 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Modal,
   Image,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AutoImage from '../components/AutoImage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -19,10 +21,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RootStackParamList } from '../types/navigation';
 import QRCodeView from '../components/QRCodeView';
 import * as ImagePicker from 'expo-image-picker';
-import { TemplateRow, Template, SelectOption } from '../types';
+import { TemplateRow, Template, SelectOption, FontSize, ImageSize } from '../types';
 import { generateId, getCurrentDate, getCurrentTime } from '../utils/helpers';
 import { saveTemplate, getTemplates, addToHistory } from '../utils/storage';
 import { useTheme } from '../contexts/ThemeContext';
+import { useGlobalAlert } from '../contexts/AlertContext';
 import BarcodeView from '../components/BarcodeView';
 
 export default function TemplateEditorScreen() {
@@ -30,6 +33,7 @@ export default function TemplateEditorScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'TemplateEditor'>>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { showAlert } = useGlobalAlert();
 
   const initialRowType: TemplateRow['type'] = route.params?.initialRowType || 'text';
 
@@ -44,6 +48,7 @@ export default function TemplateEditorScreen() {
   ];
   const initialName: string = route.params?.templateName || '';
   const templateId: string | undefined = route.params?.templateId;
+  const isQuickPrint: boolean = route.params?.isQuickPrint || false;
 
   const [rows, setRows] = useState<TemplateRow[]>(initialRows);
   const [templateName] = useState(initialName);
@@ -73,6 +78,8 @@ export default function TemplateEditorScreen() {
       bold: false,
       type,
       ...(type === 'select' ? { options: [], selectedOption: '' } : {}),
+      ...(type === 'image' ? { imageSize: 'medium' as ImageSize } : {}),
+      ...(type === 'input' ? { inputPosition: 'bottom' as const } : {}),
     };
     setRows([...rows, newRow]);
 
@@ -82,49 +89,95 @@ export default function TemplateEditorScreen() {
   };
 
   const pickImage = async (rowId: string) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please grant photo library access to add images.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      quality: 0.8,
-    });
-    if (!result.canceled && result.assets[0]) {
-      updateRow(rowId, { imageUri: result.assets[0].uri, text: 'Image' });
-    } else {
-      setRows(prev => {
-        const row = prev.find(r => r.id === rowId);
-        if (row && !row.imageUri) {
-          return prev.filter(r => r.id !== rowId);
-        }
-        return prev;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('warning', 'Permission Required',
+          'Photo library access is needed to add images. Please grant permission in your device settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => { try { require('react-native').Linking.openSettings(); } catch {} } },
+          ]
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.8,
       });
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        updateRow(rowId, { imageUri: asset.uri, text: 'Image', imageSize: 'medium', imageWidth: asset.width, imageHeight: asset.height });
+      } else {
+        // Remove the row if user cancelled and it has no image yet
+        setRows(prev => {
+          const row = prev.find(r => r.id === rowId);
+          if (row && !row.imageUri) {
+            return prev.filter(r => r.id !== rowId);
+          }
+          return prev;
+        });
+      }
+    } catch (err: any) {
+      showAlert('error', 'Error', 'Could not open image picker. Please try again.');
     }
+  };
+
+  const getImageDimensions = (size?: ImageSize) => {
+    if (size === 'small') return { width: 80, height: 60 };
+    if (size === 'large') return { width: '100%' as const, height: 200 };
+    return { width: 160, height: 120 }; // medium (default)
+  };
+
+  const cycleImageSize = (id: string, current?: ImageSize) => {
+    const size = current || 'medium';
+    const next: ImageSize = size === 'small' ? 'medium' : size === 'medium' ? 'large' : 'small';
+    updateRow(id, { imageSize: next });
+  };
+
+  const getImageSizeLabel = (size?: ImageSize) => {
+    if (size === 'small') return 'S';
+    if (size === 'large') return 'L';
+    return 'M';
   };
 
   const updateRow = (id: string, updates: Partial<TemplateRow>) => {
-    setRows(rows.map(r => r.id === id ? { ...r, ...updates } : r));
+    setRows(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
   };
 
   const removeRow = (id: string) => {
-    if (rows.length <= 1) return;
-    setRows(rows.filter(r => r.id !== id));
+    setRows(prev => {
+      if (prev.length <= 1) return prev;
+      return prev.filter(r => r.id !== id);
+    });
   };
 
   const moveRow = (index: number, direction: 'up' | 'down') => {
-    const newRows = [...rows];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newRows.length) return;
-    [newRows[index], newRows[targetIndex]] = [newRows[targetIndex], newRows[index]];
-    setRows(newRows);
+    setRows(prev => {
+      const newRows = [...prev];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= newRows.length) return prev;
+      [newRows[index], newRows[targetIndex]] = [newRows[targetIndex], newRows[index]];
+      return newRows;
+    });
   };
 
   const cycleAlign = (id: string, current: string) => {
     const next = current === 'left' ? 'center' : current === 'center' ? 'right' : 'left';
     updateRow(id, { align: next as TemplateRow['align'] });
+  };
+
+  const cycleFontSize = (id: string, current?: FontSize) => {
+    const size = current || 'normal';
+    const next: FontSize = size === 'small' ? 'normal' : size === 'normal' ? 'large' : 'small';
+    updateRow(id, { fontSize: next });
+  };
+
+  const getFontSizeLabel = (size?: FontSize) => {
+    if (size === 'small') return 'S';
+    if (size === 'large') return 'L';
+    return 'N';
   };
 
   // --- Select row helpers ---
@@ -135,7 +188,7 @@ export default function TemplateEditorScreen() {
     if (!row) return;
     const existing = row.options || [];
     if (existing.some(o => o.label === val)) {
-      Alert.alert('Duplicate', 'This option already exists');
+      showAlert('warning', 'Duplicate', 'This option already exists');
       return;
     }
     updateRow(rowId, { options: [...existing, { label: val, hasInput: false }] });
@@ -180,7 +233,7 @@ export default function TemplateEditorScreen() {
 
   const confirmSave = async () => {
     if (!saveName.trim()) {
-      Alert.alert('Error', 'Please enter a template name');
+      showAlert('error', 'Error', 'Please enter a template name');
       return;
     }
     const template: Template = {
@@ -189,6 +242,7 @@ export default function TemplateEditorScreen() {
       rows,
       createdAt: templateId ? '' : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      ...(isQuickPrint ? { isQuickPrint: true } : {}),
     };
     if (templateId) {
       const templates = await getTemplates();
@@ -197,7 +251,7 @@ export default function TemplateEditorScreen() {
     }
     await saveTemplate(template);
     setShowNameInput(false);
-    Alert.alert('Saved', `Template "${saveName}" saved successfully!`, [
+    showAlert('success', 'Saved', `Template "${saveName}" saved successfully!`, [
       { text: 'OK', onPress: () => navigation.goBack() },
     ]);
   };
@@ -236,11 +290,8 @@ export default function TemplateEditorScreen() {
       rows: resolvedRows,
     });
 
-    Alert.alert(
-      'Print',
-      'Bill sent to printer!\n\n(Bluetooth printing requires APK build. This is a simulation.)',
-      [{ text: 'OK' }]
-    );
+    showAlert('success', 'Print',
+      'Bill sent to printer!\n\n(Bluetooth printing requires APK build. This is a simulation.)');
   };
 
   const confirmPrintSelections = () => {
@@ -276,6 +327,12 @@ export default function TemplateEditorScreen() {
     if (type === 'input') return 'Input';
     if (type === 'select') return 'Select';
     return 'Text';
+  };
+
+  const getPreviewFontSize = (size?: FontSize) => {
+    if (size === 'small') return 10;
+    if (size === 'large') return 18;
+    return 13;
   };
 
   /** Render the inline content for a row */
@@ -315,6 +372,7 @@ export default function TemplateEditorScreen() {
     }
 
     if (row.type === 'input') {
+      const pos = row.inputPosition || 'bottom';
       return (
         <View style={styles.specialContent}>
           <TextInput
@@ -324,24 +382,66 @@ export default function TemplateEditorScreen() {
             placeholder="Input title (e.g. Customer Name, Address...)"
             placeholderTextColor={colors.textMuted}
           />
-          <View style={[styles.inputPreviewHint, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-            <Ionicons name="information-circle-outline" size={14} color={colors.textMuted} />
-            <Text style={[styles.inputPreviewHintText, { color: colors.textMuted }]}>
-              This will appear as a fillable text field in the print form
-            </Text>
+          <View style={[styles.inputConfigWrap, { backgroundColor: colors.surface, borderColor: colors.divider }]}>
+            <Text style={[styles.positionLabel, { color: colors.textMuted }]}>Value Position</Text>
+            <View style={styles.positionRow}>
+              {(['left', 'right', 'top', 'bottom'] as const).map((p) => {
+                const isActive = pos === p;
+                return (
+                  <TouchableOpacity
+                    key={p}
+                    style={[
+                      styles.positionBtn,
+                      { backgroundColor: isActive ? colors.accent : colors.inputBg, borderColor: isActive ? colors.accent : colors.inputBorder },
+                    ]}
+                    onPress={() => updateRow(row.id, { inputPosition: p })}
+                  >
+                    <Text style={[styles.positionBtnText, { color: isActive ? '#FFF' : colors.textMuted }]}>
+                      {p.charAt(0).toUpperCase() + p.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={[styles.inputPreviewHint, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+              <Ionicons name="information-circle-outline" size={14} color={colors.textMuted} />
+              <Text style={[styles.inputPreviewHintText, { color: colors.textMuted }]}>
+                {pos === 'left' ? 'Value  Title' :
+                 pos === 'right' ? 'Title  Value' :
+                 pos === 'top' ? 'Value appears above title' :
+                 'Value appears below title'}
+              </Text>
+            </View>
           </View>
         </View>
       );
     }
 
     if (row.type === 'image') {
+      const imgDims = getImageDimensions(row.imageSize);
       return (
         <View style={styles.specialContent}>
           {row.imageUri ? (
-            <TouchableOpacity onPress={() => pickImage(row.id)} style={styles.imagePreview}>
-              <Image source={{ uri: row.imageUri }} style={styles.imageThumb} resizeMode="cover" />
-              <Text style={[styles.imageTapText, { color: colors.textMuted }]}>Tap to change</Text>
-            </TouchableOpacity>
+            <View style={{ alignItems: 'center', gap: 8 }}>
+              <TouchableOpacity onPress={() => pickImage(row.id)}>
+                <Image
+                  source={{ uri: row.imageUri }}
+                  style={{
+                    width: imgDims.width,
+                    height: imgDims.height,
+                    borderRadius: 10,
+                  }}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={[styles.imageTapText, { color: colors.textMuted }]}>Tap image to change</Text>
+                <Text style={[styles.imageTapText, { color: colors.textMuted }]}>·</Text>
+                <Text style={[styles.imageTapText, { color: colors.accent }]}>
+                  Size: {(row.imageSize || 'medium').charAt(0).toUpperCase() + (row.imageSize || 'medium').slice(1)}
+                </Text>
+              </View>
+            </View>
           ) : (
             <TouchableOpacity
               onPress={() => pickImage(row.id)}
@@ -538,25 +638,41 @@ export default function TemplateEditorScreen() {
     }
 
     if (row.type === 'image' && row.imageUri) {
+      const pct = row.imageSize === 'small' ? 40
+        : row.imageSize === 'large' ? 90
+        : 65;
       return (
-        <View key={row.id} style={[styles.previewRowWrap, { justifyContent: row.align === 'left' ? 'flex-start' : row.align === 'right' ? 'flex-end' : 'center' }]}>
-          <Image source={{ uri: row.imageUri }} style={styles.previewImage} resizeMode="contain" />
-        </View>
+        <AutoImage key={row.id} uri={row.imageUri} widthPercent={pct} />
       );
     }
 
     if (row.type === 'input') {
+      const pos = row.inputPosition || 'bottom';
+      const title = row.text || '';
+      const blank = '___________';
+      const textStyle = [
+        styles.receiptText,
+        { textAlign: resolved.align, fontSize: getPreviewFontSize(resolved.fontSize) } as any,
+        resolved.bold && { fontWeight: 'bold' as const },
+      ];
+
+      if (!title) {
+        return <Text key={row.id} style={textStyle}>{blank}</Text>;
+      }
+
+      if (pos === 'right') {
+        return <Text key={row.id} style={textStyle}>{`${title} - ${blank}`}</Text>;
+      }
+      if (pos === 'left') {
+        return <Text key={row.id} style={textStyle}>{`${blank} - ${title}`}</Text>;
+      }
+      // top or bottom
       return (
-        <Text
-          key={row.id}
-          style={[
-            styles.receiptText,
-            { textAlign: resolved.align },
-            resolved.bold && { fontWeight: 'bold' },
-          ]}
-        >
-          {row.text ? `${row.text}: ___________` : '___________'}
-        </Text>
+        <View key={row.id}>
+          {pos === 'top' && <Text style={textStyle}>{blank}</Text>}
+          <Text style={textStyle}>{title}</Text>
+          {pos === 'bottom' && <Text style={textStyle}>{blank}</Text>}
+        </View>
       );
     }
 
@@ -567,7 +683,7 @@ export default function TemplateEditorScreen() {
           key={row.id}
           style={[
             styles.receiptText,
-            { textAlign: resolved.align },
+            { textAlign: resolved.align, fontSize: getPreviewFontSize(resolved.fontSize) },
             resolved.bold && { fontWeight: 'bold' },
           ]}
         >
@@ -581,7 +697,7 @@ export default function TemplateEditorScreen() {
         key={row.id}
         style={[
           styles.receiptText,
-          { textAlign: resolved.align },
+          { textAlign: resolved.align, fontSize: getPreviewFontSize(resolved.fontSize) },
           resolved.bold && { fontWeight: 'bold' },
         ]}
       >
@@ -691,7 +807,11 @@ export default function TemplateEditorScreen() {
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+    <KeyboardAvoidingView
+      style={[styles.container, { backgroundColor: colors.bg }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
+    >
       {/* Header */}
       <View style={[styles.header, { backgroundColor: colors.bg, borderBottomColor: colors.divider, paddingTop: insets.top + 8 }]}>
         <TouchableOpacity
@@ -703,7 +823,7 @@ export default function TemplateEditorScreen() {
           <Ionicons name="chevron-back" size={20} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text }]}>
-          {templateId ? 'Edit Template' : 'New Template'}
+          {templateId ? 'Edit Template' : isQuickPrint ? 'Quick Print Template' : 'New Template'}
         </Text>
         <TouchableOpacity
           onPress={() => setShowPreview(true)}
@@ -771,6 +891,42 @@ export default function TemplateEditorScreen() {
                         { color: row.bold ? '#FFF' : colors.textSecondary },
                       ]}>
                         B
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {row.type !== 'image' && row.type !== 'separator' && row.type !== 'qr-code' && row.type !== 'barcode' && (
+                    <TouchableOpacity
+                      onPress={() => cycleFontSize(row.id, row.fontSize)}
+                      style={[
+                        styles.formatBtn,
+                        { backgroundColor: row.fontSize && row.fontSize !== 'normal' ? colors.accent : colors.surface },
+                      ]}
+                    >
+                      <Text style={[
+                        styles.formatBtnText,
+                        { color: row.fontSize && row.fontSize !== 'normal' ? '#FFF' : colors.textSecondary },
+                        row.fontSize === 'large' && { fontSize: 15 },
+                        row.fontSize === 'small' && { fontSize: 10 },
+                      ]}>
+                        {getFontSizeLabel(row.fontSize)}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {row.type === 'image' && (
+                    <TouchableOpacity
+                      onPress={() => cycleImageSize(row.id, row.imageSize)}
+                      style={[
+                        styles.formatBtn,
+                        { backgroundColor: row.imageSize && row.imageSize !== 'medium' ? colors.accent : colors.surface },
+                      ]}
+                    >
+                      <Text style={[
+                        styles.formatBtnText,
+                        { color: row.imageSize && row.imageSize !== 'medium' ? '#FFF' : colors.textSecondary },
+                      ]}>
+                        {getImageSizeLabel(row.imageSize)}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -857,6 +1013,7 @@ export default function TemplateEditorScreen() {
 
       {/* Save Name Modal */}
       <Modal visible={showNameInput} transparent animationType="fade">
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
           <View style={[styles.nameModal, { backgroundColor: colors.card }]}>
             <Text style={[styles.nameModalTitle, { color: colors.text }]}>Save Template</Text>
@@ -888,8 +1045,9 @@ export default function TemplateEditorScreen() {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

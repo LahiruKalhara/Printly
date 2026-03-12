@@ -26,6 +26,7 @@ export default function CategoriesScreen() {
   const insets = useSafeAreaInsets();
   const printer = usePrinter();
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showQuickPrintPicker, setShowQuickPrintPicker] = useState(false);
   const [showDevicePicker, setShowDevicePicker] = useState(false);
   const [connectingAddress, setConnectingAddress] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -77,6 +78,26 @@ export default function CategoriesScreen() {
       templateId: template.id,
       rows: template.rows,
       templateName: template.name,
+    });
+  };
+
+  const quickPrintTemplates = templates.filter(t => t.isQuickPrint);
+
+  const handleQuickPrint = () => {
+    if (quickPrintTemplates.length === 0) {
+      navigation.navigate('TemplateEditor', { isQuickPrint: true });
+    } else {
+      setShowQuickPrintPicker(true);
+    }
+  };
+
+  const handlePickQuickPrint = (template: Template) => {
+    setShowQuickPrintPicker(false);
+    navigation.navigate('PrintBill', {
+      templateId: template.id,
+      rows: template.rows,
+      templateName: template.name,
+      isQuickPrint: true,
     });
   };
 
@@ -201,6 +222,27 @@ export default function CategoriesScreen() {
         </View>
       </TouchableOpacity>
 
+      {/* Quick Print */}
+      <TouchableOpacity
+        style={[styles.quickPrintCard, { backgroundColor: '#2ED573' }]}
+        onPress={handleQuickPrint}
+        activeOpacity={0.85}
+        accessibilityLabel="Quick print"
+        accessibilityRole="button"
+      >
+        <View style={styles.printCardLeft}>
+          <Text style={styles.printCardTitle}>Quick Print</Text>
+          <Text style={styles.printCardSub}>
+            {quickPrintTemplates.length > 0
+              ? `${quickPrintTemplates.length} quick template${quickPrintTemplates.length > 1 ? 's' : ''} ready`
+              : 'Create a quick print template to start'}
+          </Text>
+        </View>
+        <View style={styles.printCardIcon}>
+          <Ionicons name="flash" size={40} color="rgba(255,255,255,0.3)" />
+        </View>
+      </TouchableOpacity>
+
       {/* SECONDARY: Create New Template */}
       <TouchableOpacity
         style={[styles.createCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
@@ -215,6 +257,24 @@ export default function CategoriesScreen() {
         <View style={styles.createInfo}>
           <Text style={[styles.createTitle, { color: colors.text }]}>Create New Template</Text>
           <Text style={[styles.createSub, { color: colors.textMuted }]}>Design a custom receipt layout</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      </TouchableOpacity>
+
+      {/* Create Quick Print Template */}
+      <TouchableOpacity
+        style={[styles.createCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+        onPress={() => navigation.navigate('TemplateEditor', { isQuickPrint: true })}
+        activeOpacity={0.7}
+        accessibilityLabel="Create quick print template"
+        accessibilityRole="button"
+      >
+        <View style={[styles.createIconWrap, { backgroundColor: 'rgba(46, 213, 115, 0.12)' }]}>
+          <Ionicons name="flash" size={22} color="#2ED573" />
+        </View>
+        <View style={styles.createInfo}>
+          <Text style={[styles.createTitle, { color: colors.text }]}>Create Quick Print Template</Text>
+          <Text style={[styles.createSub, { color: colors.textMuted }]}>Save to quick print for fast access</Text>
         </View>
         <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
       </TouchableOpacity>
@@ -382,6 +442,71 @@ export default function CategoriesScreen() {
           </View>
         </View>
       </Modal>
+      {/* Quick Print Template Picker Modal */}
+      <Modal visible={showQuickPrintPicker} animationType="slide" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.pickerModal, { backgroundColor: colors.card }]}>
+            <View style={styles.pickerHeader}>
+              <Text style={[styles.pickerTitle, { color: colors.text }]}>Quick Print</Text>
+              <TouchableOpacity
+                onPress={() => setShowQuickPrintPicker(false)}
+                style={[styles.pickerClose, { backgroundColor: colors.surface }]}
+                accessibilityLabel="Close"
+                accessibilityRole="button"
+              >
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.pickerHint, { color: colors.textSecondary }]}>
+              Choose a template. You'll only need to fill in the input fields.
+            </Text>
+
+            <FlatList
+              data={quickPrintTemplates}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => {
+                const inputCount = item.rows.filter(r => r.type === 'input' || r.type === 'select').length;
+                return (
+                  <TouchableOpacity
+                    style={[styles.templateItem, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}
+                    onPress={() => handlePickQuickPrint(item)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.templateIcon, { backgroundColor: 'rgba(46, 213, 115, 0.12)' }]}>
+                      <Ionicons name="flash" size={20} color="#2ED573" />
+                    </View>
+                    <View style={styles.templateInfo}>
+                      <Text style={[styles.templateName, { color: colors.text }]} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={[styles.templatePreview, { color: colors.textMuted }]} numberOfLines={1}>
+                        {inputCount > 0 ? `${inputCount} field${inputCount > 1 ? 's' : ''} to fill` : 'No input fields'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                  </TouchableOpacity>
+                );
+              }}
+              contentContainerStyle={styles.pickerList}
+              showsVerticalScrollIndicator={false}
+              ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+            />
+
+            <TouchableOpacity
+              style={[styles.pickerCreate, { borderColor: colors.cardBorder }]}
+              onPress={() => {
+                setShowQuickPrintPicker(false);
+                navigation.navigate('TemplateEditor', { isQuickPrint: true });
+              }}
+            >
+              <Ionicons name="add-circle-outline" size={20} color="#2ED573" />
+              <Text style={[styles.pickerCreateText, { color: '#2ED573' }]}>
+                Create Quick Print Template
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -480,13 +605,21 @@ const styles = StyleSheet.create({
   printCardIcon: {
     marginLeft: 12,
   },
+  quickPrintCard: {
+    borderRadius: 20,
+    padding: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
   // Secondary: Create New
   createCard: {
     borderRadius: 16,
     padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 28,
+    marginBottom: 12,
     borderWidth: 1,
   },
   createIconWrap: {

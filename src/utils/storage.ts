@@ -38,6 +38,14 @@ export async function saveTemplate(template: Template): Promise<void> {
   }
 }
 
+export async function saveAllTemplates(templates: Template[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
+  } catch {
+    // Silently fail
+  }
+}
+
 export async function deleteTemplate(id: string): Promise<void> {
   try {
     const templates = await getTemplates();
@@ -61,8 +69,12 @@ export async function addToHistory(job: PrintJob): Promise<void> {
   try {
     const history = await getHistory();
     history.unshift(job);
-    if (history.length > 100) history.splice(100);
-    await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    // Keep only last 30 days of data
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setDate(oneMonthAgo.getDate() - 30);
+    const cutoff = oneMonthAgo.toISOString();
+    const filtered = history.filter(j => j.printedAt >= cutoff);
+    await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(filtered));
   } catch {
     // Silently fail
   }

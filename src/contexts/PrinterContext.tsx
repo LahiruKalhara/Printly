@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import { Alert, Linking, NativeModules, PermissionsAndroid, Platform } from 'react-native';
+import { Linking, NativeModules, PermissionsAndroid, Platform } from 'react-native';
+import { useGlobalAlert } from './AlertContext';
 import { TemplateRow, PaperSize } from '../types';
 import { getSettings, saveSettings } from '../utils/storage';
 
@@ -81,6 +82,7 @@ async function requestBluetoothPermissions(): Promise<boolean> {
 }
 
 export function PrinterProvider({ children }: { children: React.ReactNode }) {
+  const { showAlert } = useGlobalAlert();
   const [isConnected, setIsConnected] = useState(false);
   const [connectedDevice, setConnectedDevice] = useState<BluetoothDevice | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -94,8 +96,7 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
 
   const scanDevices = useCallback(async () => {
     if (!nativeModulesAvailable) {
-      Alert.alert(
-        'Bluetooth Not Available',
+      showAlert('error', 'Bluetooth Not Available',
         'Bluetooth native module is not loaded. This can happen in Expo Go or if the app needs to be rebuilt.\n\nRun: npx eas build --platform android --profile preview\n\nThen install the new APK on your phone.'
       );
       return;
@@ -103,7 +104,7 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
 
     const hasPermission = await requestBluetoothPermissions();
     if (!hasPermission) {
-      Alert.alert('Permission Required', 'Bluetooth and Location permissions are needed to scan for printers.');
+      showAlert('warning', 'Permission Required', 'Bluetooth and Location permissions are needed to scan for printers.');
       return;
     }
 
@@ -130,8 +131,7 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
       setDevices(deviceList || []);
 
       if (!deviceList || deviceList.length === 0) {
-        Alert.alert(
-          'No Paired Printers Found',
+        showAlert('info', 'No Paired Printers Found',
           'This app shows devices that are already paired in your phone\'s Bluetooth settings.\n\n' +
           'Steps:\n' +
           '1. Turn on your printer\n' +
@@ -147,9 +147,9 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
     } catch (err: any) {
       const msg = err?.message || String(err);
       if (msg.includes('not enabled')) {
-        Alert.alert('Bluetooth Off', 'Please turn on Bluetooth and try again.');
+        showAlert('error', 'Bluetooth Off', 'Please turn on Bluetooth and try again.');
       } else {
-        Alert.alert('Scan Failed', msg || 'Could not scan for Bluetooth devices.');
+        showAlert('error', 'Scan Failed', msg || 'Could not scan for Bluetooth devices.');
       }
     } finally {
       setIsScanning(false);
@@ -171,7 +171,7 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
 
       return true;
     } catch (err: any) {
-      Alert.alert('Connection Failed', err?.message || 'Could not connect to printer.');
+      showAlert('error', 'Connection Failed', err?.message || 'Could not connect to printer.');
       setIsConnected(false);
       setConnectedDevice(null);
       return false;
@@ -192,15 +192,14 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
 
   const printReceipt = useCallback(async (rows: TemplateRow[], paperSize: PaperSize): Promise<boolean> => {
     if (!nativeModulesAvailable) {
-      Alert.alert(
-        'Expo Go Detected',
+      showAlert('info', 'Expo Go Detected',
         'Bluetooth printing requires a development build (APK). Bill has been saved to history.'
       );
       return false;
     }
 
     if (!isConnected) {
-      Alert.alert('Not Connected', 'Please connect to a Bluetooth printer first.');
+      showAlert('warning', 'Not Connected', 'Please connect to a Bluetooth printer first.');
       return false;
     }
 
@@ -220,20 +219,36 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
           case 'select':
           case 'input': {
             const text = row.text || '';
+            const size = row.fontSize || 'normal';
             let line = '';
 
-            if (row.align === 'center' && row.bold) {
-              line = `<CB>${text}</CB>`;
-            } else if (row.align === 'center') {
-              line = `<C>${text}</C>`;
-            } else if (row.bold && row.align === 'right') {
-              line = `<B>${text.padStart(charWidth)}</B>`;
-            } else if (row.bold) {
-              line = `<B>${text}</B>`;
-            } else if (row.align === 'right') {
-              line = text.padStart(charWidth);
+            if (size === 'large') {
+              // <D> = double size (width + height)
+              if (row.align === 'center') {
+                line = `<CD>${text}</CD>`;
+              } else if (row.align === 'right') {
+                line = `<D>${text.padStart(Math.floor(charWidth / 2))}</D>`;
+              } else {
+                line = `<D>${text}</D>`;
+              }
+              if (row.bold) {
+                line = `<B>${line}</B>`;
+              }
             } else {
-              line = text;
+              // normal and small use same tags (thermal printers don't have a "small" mode below normal)
+              if (row.align === 'center' && row.bold) {
+                line = `<CB>${text}</CB>`;
+              } else if (row.align === 'center') {
+                line = `<C>${text}</C>`;
+              } else if (row.bold && row.align === 'right') {
+                line = `<B>${text.padStart(charWidth)}</B>`;
+              } else if (row.bold) {
+                line = `<B>${text}</B>`;
+              } else if (row.align === 'right') {
+                line = text.padStart(charWidth);
+              } else {
+                line = text;
+              }
             }
 
             receiptText += line + '\n';
@@ -295,7 +310,7 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
 
       return true;
     } catch (err: any) {
-      Alert.alert('Print Failed', err?.message || 'Could not print. Check printer connection.');
+      showAlert('error', 'Print Failed', err?.message || 'Could not print. Check printer connection.');
       setIsConnected(false);
       setConnectedDevice(null);
       return false;
