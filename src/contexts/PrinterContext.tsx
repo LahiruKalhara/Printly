@@ -5,6 +5,7 @@ import { getSettings, saveSettings } from '../utils/storage';
 
 // Lazy-load native Bluetooth module — crashes in Expo Go
 let BLEPrinter: any = null;
+let RNBLEPrinter: any = null;
 let nativeModulesAvailable = false;
 
 try {
@@ -13,6 +14,7 @@ try {
   if (hasNativeModule) {
     const thermalPrinter = require('react-native-thermal-receipt-printer-image-qr');
     BLEPrinter = thermalPrinter.BLEPrinter;
+    RNBLEPrinter = NativeModules.RNBLEPrinter;
     nativeModulesAvailable = !!BLEPrinter;
   }
 } catch {
@@ -113,7 +115,18 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
       await BLEPrinter.init();
 
       // Get paired devices — only devices already paired in Android Bluetooth settings will appear
-      const deviceList: BluetoothDevice[] = await BLEPrinter.getDeviceList();
+      // Note: library rejects with "No Device Found" when list is empty instead of returning []
+      let deviceList: BluetoothDevice[] = [];
+      try {
+        deviceList = await BLEPrinter.getDeviceList();
+      } catch (listErr: any) {
+        const listMsg = listErr?.message || String(listErr);
+        // "No Device Found" means empty list, not an error
+        if (!listMsg.includes('No Device Found')) {
+          throw listErr;
+        }
+      }
+
       setDevices(deviceList || []);
 
       if (!deviceList || deviceList.length === 0) {
@@ -126,7 +139,7 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
           '3. Pair with your printer there\n' +
           '4. Come back and tap "Connect Printer" again',
           [
-            { text: 'Open Bluetooth Settings', onPress: () => Linking.sendIntent('android.settings.BLUETOOTH_SETTINGS').catch(() => {}) },
+            { text: 'Open Bluetooth Settings', onPress: () => Linking.openSettings().catch(() => {}) },
             { text: 'OK', style: 'cancel' },
           ]
         );
@@ -254,12 +267,37 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // printBill adds cut + beep automatically, and handles Base64 encoding internally
-      await BLEPrinter.printBill(receiptText, { encoding: 'UTF8' });
+      // Pre-check: verify Bluetooth socket is still alive before printing.
+      // The native printRawData checks socket != null synchronously and calls errorCallback if dead.
+      // printBill itself is fire-and-forget (errors go to console.warn), so we check first.
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        // Send a no-op base64 payload to trigger the native socket-null check
+        // Base64 of empty = "", native decodes to 0 bytes, writes nothing, but checks socket first
+        RNBLEPrinter.printRawData('', (error: string) => {
+          if (!settled) {
+            settled = true;
+            reject(new Error(error));
+          }
+        });
+        // If errorCallback doesn't fire through the bridge within 500ms, socket is alive
+        setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+        }, 500);
+      });
+
+      // Socket is alive — send the actual print job
+      // printBill converts HTML-like tags to ESC/POS bytes, Base64-encodes, and sends to printer
+      BLEPrinter.printBill(receiptText, { encoding: 'UTF8' });
 
       return true;
     } catch (err: any) {
       Alert.alert('Print Failed', err?.message || 'Could not print. Check printer connection.');
+      setIsConnected(false);
+      setConnectedDevice(null);
       return false;
     }
   }, [isConnected]);
