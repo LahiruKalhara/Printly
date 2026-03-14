@@ -22,7 +22,7 @@ export interface TemplateRow {
   bold: boolean;
   /** Font size: small, normal (default), or large */
   fontSize?: FontSize;
-  type: 'text' | 'separator' | 'auto-date' | 'auto-time' | 'qr-code' | 'barcode' | 'image' | 'select' | 'input';
+  type: 'text' | 'separator' | 'auto-date' | 'auto-time' | 'qr-code' | 'barcode' | 'image' | 'select' | 'input' | 'input-amount';
   /** URI for image rows */
   imageUri?: string;
   /** Original image width in pixels */

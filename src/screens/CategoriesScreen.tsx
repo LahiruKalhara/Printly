@@ -465,7 +465,7 @@ export default function CategoriesScreen() {
               data={quickPrintTemplates}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => {
-                const inputCount = item.rows.filter(r => r.type === 'input' || r.type === 'select').length;
+                const inputCount = item.rows.filter(r => r.type === 'input' || r.type === 'input-amount' || r.type === 'select').length;
                 return (
                   <TouchableOpacity
                     style={[styles.templateItem, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}

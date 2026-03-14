@@ -150,7 +150,7 @@ export default function PrintBillScreen() {
     }
 
     // Check if any input rows are empty
-    const emptyInputs = rows.filter(r => r.type === 'input' && !(r.inputValue || '').trim());
+    const emptyInputs = rows.filter(r => (r.type === 'input' || r.type === 'input-amount') && !(r.inputValue || '').trim());
     if (emptyInputs.length > 0) {
       showAlert('warning', 'Missing Input', 'Please fill in all input fields.');
       return;
@@ -174,17 +174,18 @@ export default function PrintBillScreen() {
             align: opt.inputAlign || 'center',
           });
         }
-      } else if (r.type === 'input') {
+      } else if (r.type === 'input' || r.type === 'input-amount') {
         const pos = r.inputPosition || 'bottom';
         const title = r.text || '';
-        const value = r.inputValue || '';
+        const rawValue = r.inputValue || '';
+        const value = r.type === 'input-amount' ? `Rs.${rawValue}` : rawValue;
 
         if (!title) {
           finalRows.push({ ...r, text: value, type: 'text' });
         } else if (pos === 'right') {
-          finalRows.push({ ...r, text: `${title} - ${value}`, type: 'text' });
+          finalRows.push({ ...r, text: `${title}  ${value}`, type: 'text' });
         } else if (pos === 'left') {
-          finalRows.push({ ...r, text: `${value} - ${title}`, type: 'text' });
+          finalRows.push({ ...r, text: `${value}  ${title}`, type: 'text' });
         } else if (pos === 'top') {
           finalRows.push({ ...r, id: r.id + '_val', text: value, type: 'text' });
           finalRows.push({ ...r, text: title, type: 'text' });
@@ -336,26 +337,31 @@ export default function PrintBillScreen() {
     }
 
     // Input field — fillable at print time
-    if (row.type === 'input') {
+    if (row.type === 'input' || row.type === 'input-amount') {
+      const isAmount = row.type === 'input-amount';
       return (
         <View
           key={row.id}
           style={[styles.fieldCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
         >
-          <View style={[styles.fieldIcon, { backgroundColor: colors.accentMuted }]}>
-            <Ionicons name="create-outline" size={18} color={colors.accent} />
+          <View style={[styles.fieldIcon, { backgroundColor: isAmount ? 'rgba(46, 213, 115, 0.12)' : colors.accentMuted }]}>
+            <Ionicons name={isAmount ? 'cash-outline' : 'create-outline'} size={18} color={isAmount ? '#2ED573' : colors.accent} />
           </View>
           <View style={{ flex: 1 }}>
             {row.text ? (
               <Text style={[styles.fieldLabel, { color: colors.textMuted, marginBottom: 4 }]}>{row.text}</Text>
             ) : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {isAmount && (
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>Rs.</Text>
+              )}
               <TextInput
                 style={[styles.fieldInput, { color: colors.text, flex: 1 }]}
                 value={row.inputValue || ''}
                 onChangeText={(text) => updateRow(row.id, { inputValue: text })}
-                placeholder={row.text ? `Enter ${row.text}...` : 'Enter value...'}
+                placeholder={isAmount ? 'Enter amount...' : (row.text ? `Enter ${row.text}...` : 'Enter value...')}
                 placeholderTextColor={colors.textMuted}
+                keyboardType={isAmount ? 'numeric' : 'default'}
               />
               <TouchableOpacity
                 onPress={() => handlePaste(row.id)}
@@ -535,10 +541,12 @@ export default function PrintBillScreen() {
       );
     }
     // Input rows
-    if (row.type === 'input') {
+    if (row.type === 'input' || row.type === 'input-amount') {
       const pos = row.inputPosition || 'bottom';
       const title = row.text || '';
-      const value = row.inputValue || '___________';
+      const prefix = row.type === 'input-amount' ? 'Rs.' : '';
+      const rawValue = row.inputValue ? `${prefix}${row.inputValue}` : `${prefix}___________`;
+      const value = rawValue;
       const textStyle = [
         styles.receiptText,
         { textAlign: row.align, fontSize: getPreviewFontSize(row.fontSize) } as any,
@@ -550,10 +558,10 @@ export default function PrintBillScreen() {
       }
 
       if (pos === 'right') {
-        return <Text key={row.id} style={textStyle}>{`${title} - ${value}`}</Text>;
+        return <Text key={row.id} style={textStyle}>{`${title}  ${value}`}</Text>;
       }
       if (pos === 'left') {
-        return <Text key={row.id} style={textStyle}>{`${value} - ${title}`}</Text>;
+        return <Text key={row.id} style={textStyle}>{`${value}  ${title}`}</Text>;
       }
       // top or bottom
       return (
@@ -652,10 +660,10 @@ export default function PrintBillScreen() {
           {isQuickPrint ? 'FILL IN THE FIELDS' : 'FILL IN YOUR BILL'}
         </Text>
         {isQuickPrint
-          ? rows.filter(r => r.type === 'input' || r.type === 'select').map(renderField)
+          ? rows.filter(r => r.type === 'input' || r.type === 'input-amount' || r.type === 'select').map(renderField)
           : rows.map(renderField)
         }
-        {isQuickPrint && rows.filter(r => r.type === 'input' || r.type === 'select').length === 0 && (
+        {isQuickPrint && rows.filter(r => r.type === 'input' || r.type === 'input-amount' || r.type === 'select').length === 0 && (
           <View style={{ alignItems: 'center', paddingVertical: 40 }}>
             <Ionicons name="checkmark-circle-outline" size={48} color={colors.textMuted} />
             <Text style={{ color: colors.textMuted, fontSize: 14, fontWeight: '500', marginTop: 12 }}>

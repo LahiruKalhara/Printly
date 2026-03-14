@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { Linking, NativeModules, PermissionsAndroid, Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useGlobalAlert } from './AlertContext';
 import { TemplateRow, PaperSize } from '../types';
 import { getSettings, saveSettings } from '../utils/storage';
@@ -206,10 +207,58 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
     const charWidth = paperSize === '58mm' ? 32 : 48;
 
     try {
-      // Build receipt text with HTML-like tags that the library processes internally
-      // The library converts these tags to ESC/POS commands and Base64-encodes for the native side
-      // Tags: <C> center, <B> bold, <CB> center+bold, <D> double, <M> medium
-      let receiptText = '';
+      // Build receipt as segments: text chunks and image commands
+      // We split at image rows because images need a separate native call (printImageBase64)
+      type Segment = { type: 'text'; content: string } | { type: 'image'; uri: string; width: number; height: number };
+      const segments: Segment[] = [];
+      let currentText = '';
+
+      const flushText = () => {
+        if (currentText) {
+          segments.push({ type: 'text', content: currentText });
+          currentText = '';
+        }
+      };
+
+      const buildTextLine = (row: TemplateRow): string => {
+        const text = row.text || '';
+        const size = row.fontSize || 'normal';
+        let line = '';
+
+        if (size === 'large') {
+          // <CB> = center + bold + double, <B> = bold + double, <CD>/<D> = double only
+          if (row.align === 'center' && row.bold) {
+            line = `<CB>${text}</CB>`;
+          } else if (row.align === 'center') {
+            line = `<CD>${text}</CD>`;
+          } else if (row.bold && row.align === 'right') {
+            line = `<B>${text.padStart(Math.floor(charWidth / 2))}</B>`;
+          } else if (row.bold) {
+            line = `<B>${text}</B>`;
+          } else if (row.align === 'right') {
+            line = `<D>${text.padStart(Math.floor(charWidth / 2))}</D>`;
+          } else {
+            line = `<D>${text}</D>`;
+          }
+        } else {
+          // <M> = bold only (normal size), <CM> = center + bold only
+          // <B>/<CB> are bold + double-size — only for 'large' fontSize
+          if (row.align === 'center' && row.bold) {
+            line = `<CM>${text}</CM>`;
+          } else if (row.align === 'center') {
+            line = `<C>${text}</C>`;
+          } else if (row.bold && row.align === 'right') {
+            line = `<M>${text.padStart(charWidth)}</M>`;
+          } else if (row.bold) {
+            line = `<M>${text}</M>`;
+          } else if (row.align === 'right') {
+            line = text.padStart(charWidth);
+          } else {
+            line = text;
+          }
+        }
+        return line + '\n';
+      };
 
       for (const row of rows) {
         switch (row.type) {
@@ -218,84 +267,66 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
           case 'auto-time':
           case 'select':
           case 'input': {
-            const text = row.text || '';
-            const size = row.fontSize || 'normal';
-            let line = '';
-
-            if (size === 'large') {
-              // <D> = double size (width + height)
-              if (row.align === 'center') {
-                line = `<CD>${text}</CD>`;
-              } else if (row.align === 'right') {
-                line = `<D>${text.padStart(Math.floor(charWidth / 2))}</D>`;
-              } else {
-                line = `<D>${text}</D>`;
-              }
-              if (row.bold) {
-                line = `<B>${line}</B>`;
-              }
-            } else {
-              // normal and small use same tags (thermal printers don't have a "small" mode below normal)
-              if (row.align === 'center' && row.bold) {
-                line = `<CB>${text}</CB>`;
-              } else if (row.align === 'center') {
-                line = `<C>${text}</C>`;
-              } else if (row.bold && row.align === 'right') {
-                line = `<B>${text.padStart(charWidth)}</B>`;
-              } else if (row.bold) {
-                line = `<B>${text}</B>`;
-              } else if (row.align === 'right') {
-                line = text.padStart(charWidth);
-              } else {
-                line = text;
-              }
-            }
-
-            receiptText += line + '\n';
+            currentText += buildTextLine(row);
             break;
           }
 
           case 'separator': {
-            receiptText += '-'.repeat(charWidth) + '\n';
+            currentText += `<C>${'-'.repeat(charWidth)}</C>\n`;
             break;
           }
 
           case 'qr-code': {
-            // Library doesn't support QR via printBill tags — print as text
             if (row.text) {
-              receiptText += `<C>${row.text}</C>\n`;
+              currentText += `<C>${row.text}</C>\n`;
             }
             break;
           }
 
           case 'barcode': {
             if (row.text) {
-              receiptText += `<C>${row.text}</C>\n`;
+              currentText += `<C>${row.text}</C>\n`;
             }
             break;
           }
 
           case 'image': {
-            receiptText += `<C>[Image]</C>\n`;
+            if (row.imageUri) {
+              flushText();
+              // Scale image based on imageSize setting
+              // 58mm paper ≈ 384 dots, 80mm ≈ 576 dots
+              const fullWidth = paperSize === '58mm' ? 384 : 576;
+              const sizeFactor = row.imageSize === 'small' ? 0.35
+                : row.imageSize === 'large' ? 0.8
+                : 0.55; // medium default
+              const printWidth = Math.round(fullWidth * sizeFactor);
+              // Calculate height maintaining aspect ratio
+              // Library doesn't auto-scale height, so we must compute it
+              const origW = row.imageWidth || 200;
+              const origH = row.imageHeight || 200;
+              const printHeight = Math.round(printWidth * (origH / origW));
+              segments.push({
+                type: 'image',
+                uri: row.imageUri,
+                width: printWidth,
+                height: printHeight,
+              });
+            }
             break;
           }
         }
       }
+      flushText();
 
       // Pre-check: verify Bluetooth socket is still alive before printing.
-      // The native printRawData checks socket != null synchronously and calls errorCallback if dead.
-      // printBill itself is fire-and-forget (errors go to console.warn), so we check first.
       await new Promise<void>((resolve, reject) => {
         let settled = false;
-        // Send a no-op base64 payload to trigger the native socket-null check
-        // Base64 of empty = "", native decodes to 0 bytes, writes nothing, but checks socket first
         RNBLEPrinter.printRawData('', (error: string) => {
           if (!settled) {
             settled = true;
             reject(new Error(error));
           }
         });
-        // If errorCallback doesn't fire through the bridge within 500ms, socket is alive
         setTimeout(() => {
           if (!settled) {
             settled = true;
@@ -304,9 +335,37 @@ export function PrinterProvider({ children }: { children: React.ReactNode }) {
         }, 500);
       });
 
-      // Socket is alive — send the actual print job
-      // printBill converts HTML-like tags to ESC/POS bytes, Base64-encodes, and sends to printer
-      BLEPrinter.printBill(receiptText, { encoding: 'UTF8' });
+      // Print each segment sequentially with small delays between them
+      const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
+        if (i > 0) await delay(300);
+        if (segment.type === 'text') {
+          BLEPrinter.printBill(segment.content, { encoding: 'UTF8' });
+        } else if (segment.type === 'image') {
+          try {
+            const base64 = await FileSystem.readAsStringAsync(segment.uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            await new Promise<void>((resolve, reject) => {
+              let settled = false;
+              RNBLEPrinter.printImageBase64(
+                base64,
+                segment.width,
+                segment.height,
+                (error: string) => {
+                  if (!settled) { settled = true; reject(new Error(error)); }
+                }
+              );
+              setTimeout(() => {
+                if (!settled) { settled = true; resolve(); }
+              }, 3000);
+            });
+          } catch (imgErr: any) {
+            console.warn('Image print failed:', imgErr?.message);
+          }
+        }
+      }
 
       return true;
     } catch (err: any) {

@@ -73,13 +73,14 @@ export default function TemplateEditorScreen() {
             type === 'qr-code' ? 'https://example.com' :
             type === 'barcode' ? '123456789' :
             type === 'input' ? '' :
+            type === 'input-amount' ? '' :
             type === 'select' ? '' : '',
       align: 'center',
       bold: false,
       type,
       ...(type === 'select' ? { options: [], selectedOption: '' } : {}),
       ...(type === 'image' ? { imageSize: 'medium' as ImageSize } : {}),
-      ...(type === 'input' ? { inputPosition: 'bottom' as const } : {}),
+      ...(type === 'input' || type === 'input-amount' ? { inputPosition: 'bottom' as const } : {}),
     };
     setRows([...rows, newRow]);
 
@@ -313,6 +314,7 @@ export default function TemplateEditorScreen() {
     if (type === 'barcode') return 'barcode-outline';
     if (type === 'image') return 'image-outline';
     if (type === 'input') return 'create-outline';
+    if (type === 'input-amount') return 'cash-outline';
     if (type === 'select') return 'list-outline';
     return 'text-outline';
   };
@@ -325,6 +327,7 @@ export default function TemplateEditorScreen() {
     if (type === 'auto-date') return 'Date';
     if (type === 'auto-time') return 'Time';
     if (type === 'input') return 'Input';
+    if (type === 'input-amount') return 'Amount';
     if (type === 'select') return 'Select';
     return 'Text';
   };
@@ -371,17 +374,26 @@ export default function TemplateEditorScreen() {
       );
     }
 
-    if (row.type === 'input') {
+    if (row.type === 'input' || row.type === 'input-amount') {
       const pos = row.inputPosition || 'bottom';
+      const isAmount = row.type === 'input-amount';
       return (
         <View style={styles.specialContent}>
           <TextInput
             style={[styles.rowInput, { color: colors.text, backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}
             value={row.text}
             onChangeText={(text) => updateRow(row.id, { text })}
-            placeholder="Input title (e.g. Customer Name, Address...)"
+            placeholder={isAmount ? "Amount title (e.g. Total, Subtotal...)" : "Input title (e.g. Customer Name, Address...)"}
             placeholderTextColor={colors.textMuted}
           />
+          {isAmount && (
+            <View style={[styles.inputPreviewHint, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, marginBottom: 8 }]}>
+              <Ionicons name="information-circle-outline" size={14} color={colors.textMuted} />
+              <Text style={[styles.inputPreviewHintText, { color: colors.textMuted }]}>
+                "Rs." will be added before the amount automatically
+              </Text>
+            </View>
+          )}
           <View style={[styles.inputConfigWrap, { backgroundColor: colors.surface, borderColor: colors.divider }]}>
             <Text style={[styles.positionLabel, { color: colors.textMuted }]}>Value Position</Text>
             <View style={styles.positionRow}>
@@ -406,10 +418,10 @@ export default function TemplateEditorScreen() {
             <View style={[styles.inputPreviewHint, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
               <Ionicons name="information-circle-outline" size={14} color={colors.textMuted} />
               <Text style={[styles.inputPreviewHintText, { color: colors.textMuted }]}>
-                {pos === 'left' ? 'Value  Title' :
-                 pos === 'right' ? 'Title  Value' :
-                 pos === 'top' ? 'Value appears above title' :
-                 'Value appears below title'}
+                {pos === 'left' ? (isAmount ? 'Rs.Value  Title' : 'Value  Title') :
+                 pos === 'right' ? (isAmount ? 'Title  Rs.Value' : 'Title  Value') :
+                 pos === 'top' ? (isAmount ? 'Rs.Value appears above title' : 'Value appears above title') :
+                 (isAmount ? 'Rs.Value appears below title' : 'Value appears below title')}
               </Text>
             </View>
           </View>
@@ -646,10 +658,11 @@ export default function TemplateEditorScreen() {
       );
     }
 
-    if (row.type === 'input') {
+    if (row.type === 'input' || row.type === 'input-amount') {
       const pos = row.inputPosition || 'bottom';
       const title = row.text || '';
-      const blank = '___________';
+      const prefix = row.type === 'input-amount' ? 'Rs.' : '';
+      const blank = `${prefix}___________`;
       const textStyle = [
         styles.receiptText,
         { textAlign: resolved.align, fontSize: getPreviewFontSize(resolved.fontSize) } as any,
@@ -661,10 +674,10 @@ export default function TemplateEditorScreen() {
       }
 
       if (pos === 'right') {
-        return <Text key={row.id} style={textStyle}>{`${title} - ${blank}`}</Text>;
+        return <Text key={row.id} style={textStyle}>{`${title}  ${blank}`}</Text>;
       }
       if (pos === 'left') {
-        return <Text key={row.id} style={textStyle}>{`${blank} - ${title}`}</Text>;
+        return <Text key={row.id} style={textStyle}>{`${blank}  ${title}`}</Text>;
       }
       // top or bottom
       return (
@@ -878,7 +891,7 @@ export default function TemplateEditorScreen() {
                 </View>
 
                 <View style={styles.rowFormatControls}>
-                  {(row.type === 'text' || row.type === 'separator' || row.type === 'select' || row.type === 'input') && (
+                  {(row.type === 'text' || row.type === 'separator' || row.type === 'select' || row.type === 'input' || row.type === 'input-amount') && (
                     <TouchableOpacity
                       onPress={() => updateRow(row.id, { bold: !row.bold })}
                       style={[
@@ -972,6 +985,7 @@ export default function TemplateEditorScreen() {
               { type: 'barcode' as const, label: 'Barcode', icon: 'barcode-outline' },
               { type: 'image' as const, label: 'Image', icon: 'image-outline' },
               { type: 'input' as const, label: 'Input', icon: 'create-outline' },
+              { type: 'input-amount' as const, label: 'Amount', icon: 'cash-outline' },
               { type: 'select' as const, label: 'Select', icon: 'list-outline' },
             ].map((item) => (
               <TouchableOpacity

@@ -211,42 +211,42 @@ export default function TemplatesScreen() {
         </View>
 
         <View style={styles.cardBottom}>
-          <View style={styles.cardInfo}>
-            <Text style={[styles.cardName, { color: colors.text }]} numberOfLines={1}>
-              {item.name}
-            </Text>
+          <Text style={[styles.cardName, { color: colors.text }]} numberOfLines={2}>
+            {item.name}
+          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={[styles.cardCount, { color: colors.textMuted }]}>
               {item.rows.length} rows
             </Text>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 6 }}>
-            <TouchableOpacity
-              onPress={() => handleExport(item)}
-              style={[styles.deleteBtn, { backgroundColor: colors.accentMuted }]}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityLabel="Export template"
-              accessibilityRole="button"
-            >
-              <Ionicons name="share-outline" size={14} color={colors.accent} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleDuplicate(item)}
-              style={[styles.deleteBtn, { backgroundColor: colors.accentMuted }]}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityLabel="Duplicate template"
-              accessibilityRole="button"
-            >
-              <Ionicons name="copy-outline" size={14} color={colors.accent} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleDelete(item.id, item.name)}
-              style={[styles.deleteBtn, { backgroundColor: 'rgba(248, 113, 113, 0.1)' }]}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityLabel="Delete template"
-              accessibilityRole="button"
-            >
-              <Ionicons name="trash-outline" size={14} color={colors.error} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <TouchableOpacity
+                onPress={() => handleExport(item)}
+                style={[styles.deleteBtn, { backgroundColor: colors.accentMuted }]}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityLabel="Export template"
+                accessibilityRole="button"
+              >
+                <Ionicons name="share-outline" size={14} color={colors.accent} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleDuplicate(item)}
+                style={[styles.deleteBtn, { backgroundColor: colors.accentMuted }]}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityLabel="Duplicate template"
+                accessibilityRole="button"
+              >
+                <Ionicons name="copy-outline" size={14} color={colors.accent} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleDelete(item.id, item.name)}
+                style={[styles.deleteBtn, { backgroundColor: 'rgba(248, 113, 113, 0.1)' }]}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityLabel="Delete template"
+                accessibilityRole="button"
+              >
+                <Ionicons name="trash-outline" size={14} color={colors.error} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -437,9 +437,8 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   cardBottom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
+    padding: 10,
+    gap: 6,
   },
   cardInfo: {
     flex: 1,
